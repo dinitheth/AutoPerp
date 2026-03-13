@@ -1,4 +1,6 @@
-program autoperp_core_private_v1.aleo {
+import test_usdcx_stablecoin.aleo;
+
+program autoperp_core_private_v2.aleo {
     @noupgrade
     async constructor() {}
 
@@ -99,31 +101,49 @@ program autoperp_core_private_v1.aleo {
         };
     }
 
-    transition deposit_collateral(
+    async transition deposit_collateral(
         vault: TraderVault,
         amount: u64,
-    ) -> TraderVault {
+    ) -> (TraderVault, Future) {
         assert_eq(vault.owner, self.signer);
         assert(amount > 0u64);
 
-        return TraderVault {
+        let next_vault: TraderVault = TraderVault {
             owner: vault.owner,
             balance: vault.balance + amount,
         };
+
+        let transfer: Future = test_usdcx_stablecoin.aleo/transfer_public_as_signer(self.address, amount as u128);
+        return (next_vault, finalize_deposit_collateral(transfer));
     }
 
-    transition withdraw_collateral(
+    async function finalize_deposit_collateral(
+        transfer: Future,
+    ) {
+        transfer.await();
+    }
+
+    async transition withdraw_collateral(
         vault: TraderVault,
         amount: u64,
-    ) -> TraderVault {
+    ) -> (TraderVault, Future) {
         assert_eq(vault.owner, self.signer);
         assert(amount > 0u64);
         assert(vault.balance >= amount);
 
-        return TraderVault {
+        let next_vault: TraderVault = TraderVault {
             owner: vault.owner,
             balance: vault.balance - amount,
         };
+
+        let transfer: Future = test_usdcx_stablecoin.aleo/transfer_public(self.signer, amount as u128);
+        return (next_vault, finalize_withdraw_collateral(transfer));
+    }
+
+    async function finalize_withdraw_collateral(
+        transfer: Future,
+    ) {
+        transfer.await();
     }
 
     transition open_position(

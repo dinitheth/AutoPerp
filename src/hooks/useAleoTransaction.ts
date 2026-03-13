@@ -16,6 +16,10 @@ export interface TransactionResult {
   submittedId?: string;
 }
 
+interface ExecuteOptions {
+  suppressSuccessToast?: boolean;
+}
+
 function normalizeTxError(
   status: string,
   rawError: string | undefined,
@@ -57,6 +61,11 @@ function normalizeTxError(
   }
 
   return base;
+}
+
+function isDuplicateInputLedgerError(message?: string): boolean {
+  const lower = (message ?? "").toLowerCase();
+  return lower.includes("already exists in the ledger") || lower.includes("input id");
 }
 
 const TX_DEBUG = import.meta.env.DEV;
@@ -105,6 +114,7 @@ export function useAleoTransaction() {
       tempTransactionId: string,
       toastId: string | number,
       functionName: string,
+      options: ExecuteOptions | undefined,
       resolve: (result: TransactionResult | null) => void,
     ) => {
       try {
@@ -123,13 +133,15 @@ export function useAleoTransaction() {
           if (statusResponse.status.toLowerCase() === "accepted") {
             const onChainId = statusResponse.transactionId || tempTransactionId;
             toast.dismiss(toastId);
-            toast.success("Transaction confirmed on Aleo blockchain!", {
-              duration: 8000,
-              action: {
-                label: "View Explorer",
-                onClick: () => window.open(EXPLORER_TX(onChainId), "_blank"),
-              },
-            });
+            if (!options?.suppressSuccessToast) {
+              toast.success("Transaction confirmed on Aleo blockchain!", {
+                duration: 8000,
+                action: {
+                  label: "View Explorer",
+                  onClick: () => window.open(EXPLORER_TX(onChainId), "_blank"),
+                },
+              });
+            }
             setLoading(false);
             setError(null);
             resolve({ transactionId: onChainId, submittedId: tempTransactionId });
@@ -144,19 +156,25 @@ export function useAleoTransaction() {
             );
             setError(normalized);
             toast.dismiss(toastId);
-            toast.error(`Transaction ${statusResponse.status}: ${normalized}`);
+            if (isDuplicateInputLedgerError(normalized)) {
+              toast.info("Previous private transaction is still finalizing. Wait a few seconds, refresh records, then retry.");
+            } else {
+              toast.error(`Transaction ${statusResponse.status}: ${normalized}`);
+            }
             setLoading(false);
             resolve(null);
           } else {
             const onChainId = statusResponse.transactionId || tempTransactionId;
             toast.dismiss(toastId);
-            toast.success(`Transaction ${statusResponse.status}!`, {
-              duration: 8000,
-              action: {
-                label: "View Explorer",
-                onClick: () => window.open(EXPLORER_TX(onChainId), "_blank"),
-              },
-            });
+            if (!options?.suppressSuccessToast) {
+              toast.success(`Transaction ${statusResponse.status}!`, {
+                duration: 8000,
+                action: {
+                  label: "View Explorer",
+                  onClick: () => window.open(EXPLORER_TX(onChainId), "_blank"),
+                },
+              });
+            }
             setLoading(false);
             setError(null);
             resolve({ transactionId: onChainId, submittedId: tempTransactionId });
@@ -235,6 +253,7 @@ export function useAleoTransaction() {
       functionName: string,
       inputs: string[],
       fee?: number,
+      options?: ExecuteOptions,
     ): Promise<TransactionResult | null> => {
       setError(null);
       if (pollingIntervalRef.current) {
@@ -290,10 +309,10 @@ export function useAleoTransaction() {
 
         return new Promise<TransactionResult | null>((resolve) => {
           pollingIntervalRef.current = setInterval(() => {
-            pollTransactionStatus(tempId, toastId, functionName, resolve);
+            pollTransactionStatus(tempId, toastId, functionName, options, resolve);
           }, 1000);
 
-          pollTransactionStatus(tempId, toastId, functionName, resolve);
+          pollTransactionStatus(tempId, toastId, functionName, options, resolve);
 
           setTimeout(() => {
             if (pollingIntervalRef.current) {

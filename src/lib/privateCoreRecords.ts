@@ -65,21 +65,115 @@ function parsePoolId(plain: string): string {
   return `${cleanNumeric(v)}u8`;
 }
 
+function readNumber(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    const n = Number(trimmed.replace(/[_,]/g, ""));
+    return Number.isFinite(n) ? n : null;
+  }
+  return null;
+}
+
+function extractRecordHeight(record: unknown): number {
+  if (!record || typeof record !== "object") return 0;
+  const obj = record as Record<string, unknown>;
+  const directCandidates = [
+    obj.blockHeight,
+    obj.height,
+    obj.recordHeight,
+    obj.inclusionHeight,
+    obj.createdAt,
+    obj.updatedAt,
+    obj.timestamp,
+  ];
+
+  for (const candidate of directCandidates) {
+    const n = readNumber(candidate);
+    if (n !== null) return n;
+  }
+
+  const nestedCandidates = [obj.metadata, obj.meta, obj.record];
+  for (const candidate of nestedCandidates) {
+    if (!candidate || typeof candidate !== "object") continue;
+    const nested = candidate as Record<string, unknown>;
+    const n =
+      readNumber(nested.blockHeight) ??
+      readNumber(nested.height) ??
+      readNumber(nested.recordHeight) ??
+      readNumber(nested.timestamp);
+    if (n !== null) return n;
+  }
+
+  return 0;
+}
+
+function isRecordSpent(record: unknown): boolean {
+  if (!record || typeof record !== "object") return false;
+  const obj = record as Record<string, unknown>;
+
+  const directBools = [obj.spent, obj.isSpent, obj.consumed, obj.isConsumed];
+  for (const candidate of directBools) {
+    if (typeof candidate === "boolean") return candidate;
+  }
+
+  const statusCandidates = [obj.status, obj.state];
+  for (const candidate of statusCandidates) {
+    if (typeof candidate === "string" && /spent|consumed/i.test(candidate)) return true;
+  }
+
+  const nestedCandidates = [obj.metadata, obj.meta, obj.record];
+  for (const candidate of nestedCandidates) {
+    if (!candidate || typeof candidate !== "object") continue;
+    const nested = candidate as Record<string, unknown>;
+    if (typeof nested.spent === "boolean") return nested.spent;
+    if (typeof nested.isSpent === "boolean") return nested.isSpent;
+    if (typeof nested.status === "string" && /spent|consumed/i.test(nested.status)) return true;
+  }
+
+  return false;
+}
+
+function pickBestCandidate<T extends { spent: boolean; height: number; order: number }>(
+  candidates: T[],
+): T | null {
+  if (candidates.length === 0) return null;
+  const sorted = [...candidates].sort((a, b) => {
+    if (a.spent !== b.spent) return a.spent ? 1 : -1;
+    if (a.height !== b.height) return b.height - a.height;
+    return b.order - a.order;
+  });
+  return sorted[0] ?? null;
+}
+
 export function findVaultRecord(
   records: unknown[],
   owner: string,
 ): { input: string; balanceMicro: number } | null {
   const normalizedOwner = owner.trim().toLowerCase();
-  for (const rec of records) {
+  const candidates: Array<{ input: string; balanceMicro: number; spent: boolean; height: number; order: number }> = [];
+
+  for (let index = 0; index < records.length; index += 1) {
+    const rec = records[index];
     const plain = getRecordPlaintext(rec);
     if (!plain || !isVaultRecordPlaintext(plain)) continue;
     if (parseOwner(plain) !== normalizedOwner) continue;
     const input = serializeAnyRecordInput(plain);
     if (!input) continue;
     const balanceMicro = parseU64(fieldFromPlaintext(plain, "balance"));
-    return { input, balanceMicro };
+    candidates.push({
+      input,
+      balanceMicro,
+      spent: isRecordSpent(rec),
+      height: extractRecordHeight(rec),
+      order: index,
+    });
   }
-  return null;
+
+  const best = pickBestCandidate(candidates);
+  if (!best) return null;
+  return { input: best.input, balanceMicro: best.balanceMicro };
 }
 
 export function findPoolStateRecord(
@@ -89,7 +183,10 @@ export function findPoolStateRecord(
 ): { input: string; feesMicro: number; shares: number } | null {
   const normalizedOwner = owner.trim().toLowerCase();
   const normalizedPool = poolId.trim().toLowerCase();
-  for (const rec of records) {
+  const candidates: Array<{ input: string; feesMicro: number; shares: number; spent: boolean; height: number; order: number }> = [];
+
+  for (let index = 0; index < records.length; index += 1) {
+    const rec = records[index];
     const plain = getRecordPlaintext(rec);
     if (!plain || !isPoolStatePlaintext(plain)) continue;
     if (parseOwner(plain) !== normalizedOwner) continue;
@@ -98,7 +195,17 @@ export function findPoolStateRecord(
     if (!input) continue;
     const feesMicro = parseU64(fieldFromPlaintext(plain, "fees"));
     const shares = parseU64(fieldFromPlaintext(plain, "shares"));
-    return { input, feesMicro, shares };
+    candidates.push({
+      input,
+      feesMicro,
+      shares,
+      spent: isRecordSpent(rec),
+      height: extractRecordHeight(rec),
+      order: index,
+    });
   }
-  return null;
+
+  const best = pickBestCandidate(candidates);
+  if (!best) return null;
+  return { input: best.input, feesMicro: best.feesMicro, shares: best.shares };
 }

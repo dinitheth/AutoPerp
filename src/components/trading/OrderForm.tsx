@@ -3,12 +3,11 @@ import { cn } from "@/lib/utils";
 import usePrices, { formatPrice } from "@/hooks/usePrices";
 import useUsdcxBalance from "@/hooks/useUsdcxBalance";
 import { useWallet } from "@provablehq/aleo-wallet-adaptor-react";
-import { useAleoTransaction, PROGRAMS, MARKET_IDS, toUsdcx, toPrice } from "@/hooks/useAleoTransaction";
+import { useAleoTransaction, MARKET_IDS, toUsdcx, toPrice } from "@/hooks/useAleoTransaction";
 import { addOrder, addTradeEvent, newId } from "@/lib/portfolioStore";
 import {
   LEGACY_SETTLEMENT_MESSAGE,
   REAL_SETTLEMENT_AVAILABLE,
-  STRICT_PRIVATE_CORE_ACTIVE,
 } from "@/lib/protocol";
 import {
   findPoolStateRecord,
@@ -19,9 +18,11 @@ import { toast } from "sonner";
 
 interface OrderFormProps {
   market: string;
+  coreProgram: string;
+  isPrivateMode: boolean;
 }
 
-const OrderForm = ({ market }: OrderFormProps) => {
+const OrderForm = ({ market, coreProgram, isPrivateMode }: OrderFormProps) => {
   const [direction, setDirection] = useState<"long" | "short">("long");
   const [orderType, setOrderType] = useState<"market" | "limit">("market");
   const [size, setSize] = useState("");
@@ -39,7 +40,7 @@ const OrderForm = ({ market }: OrderFormProps) => {
     refetch: refetchBalance,
   } = useUsdcxBalance();
   const { connected, address, requestRecords, connect, disconnect } = useWallet();
-  const { execute, loading: txLoading } = useAleoTransaction();
+  const { execute, loading: txLoading, getLastError } = useAleoTransaction();
 
   const currentPrice = getPrice(market)?.price ?? 0;
   const leverageOptions = [1, 2, 5, 10, 25, 50];
@@ -191,7 +192,7 @@ const OrderForm = ({ market }: OrderFormProps) => {
       return;
     }
 
-    if (!STRICT_PRIVATE_CORE_ACTIVE && usdcxBalance && collateral > parseFloat(usdcxBalance)) {
+    if (usdcxBalance && collateral > parseFloat(usdcxBalance)) {
       toast.error("Insufficient USDCx balance.");
       return;
     }
@@ -234,14 +235,55 @@ const OrderForm = ({ market }: OrderFormProps) => {
 
     let result = null;
 
-    if (STRICT_PRIVATE_CORE_ACTIVE) {
+    if (isPrivateMode) {
+      const isAlreadyExistsLedgerError = (detail: string) =>
+        /already exists in the ledger/i.test(detail) || /input id/i.test(detail);
+
+      const runPrivateStep = async (
+        step: 1 | 2 | 3 | 4,
+        title: string,
+        functionName: string,
+        inputs: string[],
+        baseFee: number,
+        retryFee = baseFee * 2,
+      ) => {
+        const nextHint: Record<number, string> = {
+          1: "Bootstrap pool (Step 2/4)",
+          2: "Fund private vault (Step 3/4)",
+          3: "Open position (Step 4/4)",
+          4: "Final confirmation",
+        };
+
+        toast.info(`Private mode Step ${step}/4: ${title}. Approve in Shield.`);
+
+        let tx = await execute(coreProgram, functionName, inputs, baseFee, {
+          suppressSuccessToast: true,
+        });
+
+        if (!tx && retryFee > baseFee) {
+          tx = await execute(coreProgram, functionName, inputs, retryFee, {
+            suppressSuccessToast: true,
+          });
+        }
+
+        if (tx) {
+          if (step < 4) {
+            toast.success(`Step ${step}/4 confirmed. Next: ${nextHint[step]}.`);
+          } else {
+            toast.success("Step 4/4 confirmed. Private position flow complete.");
+          }
+        }
+
+        return tx;
+      };
+
       const poolId = marketId;
       const owner = address;
 
       const loadState = async () => {
         const records = await requestProgramRecords(
           requestRecords,
-          PROGRAMS.CORE,
+          coreProgram,
           true,
           disconnect,
           connect,
@@ -249,6 +291,46 @@ const OrderForm = ({ market }: OrderFormProps) => {
         const vault = findVaultRecord(records, owner);
         const pool = findPoolStateRecord(records, owner, poolId);
         return { records, vault, pool };
+      };
+
+      const waitForFreshState = async (
+        previousVaultInput?: string,
+        previousPoolInput?: string,
+        minVaultBalanceMicro?: number,
+        requirePool = true,
+      ) => {
+        let lastState: Awaited<ReturnType<typeof loadState>> | null = null;
+        for (let attempt = 0; attempt < 12; attempt += 1) {
+          const next = await loadState();
+          lastState = next;
+          const hasVault = Boolean(next.vault);
+          const hasPool = requirePool ? Boolean(next.pool) : true;
+          if (!hasVault || !hasPool) {
+            await new Promise((resolve) => setTimeout(resolve, 1500));
+            continue;
+          }
+
+          const vaultChanged = previousVaultInput ? next.vault!.input !== previousVaultInput : true;
+          const poolChanged = previousPoolInput
+            ? (next.pool ? next.pool.input !== previousPoolInput : true)
+            : true;
+          const balanceReady =
+            minVaultBalanceMicro === undefined
+              ? true
+              : (next.vault?.balanceMicro ?? 0) >= minVaultBalanceMicro;
+
+          if ((vaultChanged || poolChanged) && balanceReady) {
+            return next;
+          }
+
+          if (balanceReady && previousVaultInput === undefined && previousPoolInput === undefined) {
+            return next;
+          }
+
+          await new Promise((resolve) => setTimeout(resolve, 1500));
+        }
+
+        return lastState;
       };
 
       let vault: ReturnType<typeof findVaultRecord>;
@@ -265,21 +347,27 @@ const OrderForm = ({ market }: OrderFormProps) => {
       }
 
       if (!vault) {
-        const created = await execute(PROGRAMS.CORE, "create_vault", ["0u64"], 500_000);
+        const created = await runPrivateStep(1, "Create private vault", "create_vault", ["0u64"], 1_000_000, 2_000_000);
         if (!created) {
-          toast.error("Could not initialize private vault record.");
+          const detail = (getLastError() ?? "unknown error").trim();
+          toast.error(`Could not initialize private vault record: ${detail}`);
           return;
         }
-        ({ vault, pool } = await loadState());
+        const refreshed = await waitForFreshState(undefined, undefined, undefined, false);
+        vault = refreshed?.vault;
+        pool = refreshed?.pool;
       }
 
       if (!pool) {
-        const bootstrapped = await execute(PROGRAMS.CORE, "bootstrap_pool", [poolId, "0u64"], 500_000);
+        const bootstrapped = await runPrivateStep(2, "Bootstrap private pool state", "bootstrap_pool", [poolId, "0u64"], 1_000_000, 2_000_000);
         if (!bootstrapped) {
-          toast.error("Could not initialize private pool state record.");
+          const detail = (getLastError() ?? "unknown error").trim();
+          toast.error(`Could not initialize private pool state record: ${detail}`);
           return;
         }
-        ({ vault, pool } = await loadState());
+        const refreshed = await waitForFreshState(vault?.input, pool?.input, undefined, true);
+        vault = refreshed?.vault;
+        pool = refreshed?.pool;
       }
 
       if (!vault || !pool) {
@@ -291,18 +379,42 @@ const OrderForm = ({ market }: OrderFormProps) => {
       const neededTopUp = Math.max(0, collateralMicro - vault.balanceMicro);
 
       if (neededTopUp > 0) {
-        toast.info(`Step 1/2: Funding private vault by ${(neededTopUp / 1_000_000).toFixed(6)} units...`);
-        const funded = await execute(
-          PROGRAMS.CORE,
+        const previousVaultInput = vault.input;
+        const previousPoolInput = pool.input;
+        const funded = await runPrivateStep(
+          3,
+          `Fund private vault by ${(neededTopUp / 1_000_000).toFixed(6)} USDCx`,
           "deposit_collateral",
           [vault.input, `${neededTopUp}u64`],
-          500_000,
+          1_000_000,
+          2_000_000,
         );
         if (!funded) {
-          toast.error("Private vault funding failed.");
-          return;
+          const detail = (getLastError() ?? "unknown error").trim();
+          if (isAlreadyExistsLedgerError(detail)) {
+            const reloaded = await loadState();
+            vault = reloaded.vault;
+            pool = reloaded.pool;
+            const reloadedBalance = vault?.balanceMicro ?? 0;
+            if (reloadedBalance >= collateralMicro) {
+              toast.info("Detected prior vault funding already submitted. Continuing...");
+            } else {
+              toast.info("Previous funding tx is still finalizing. Wait a few seconds, refresh, then retry open trade.");
+              return;
+            }
+          } else {
+            toast.error(`Private vault funding failed: ${detail}`);
+            return;
+          }
+        } else {
+          const refreshed = await waitForFreshState(previousVaultInput, previousPoolInput, collateralMicro, true);
+          vault = refreshed?.vault;
+          pool = refreshed?.pool;
+          if (!vault || !pool || vault.balanceMicro < collateralMicro) {
+            toast.info("Funding confirmed but private records are still syncing. Wait a bit, refresh, then retry open trade.");
+            return;
+          }
         }
-        ({ vault, pool } = await loadState());
       }
 
       if (!vault || !pool) {
@@ -310,18 +422,44 @@ const OrderForm = ({ market }: OrderFormProps) => {
         return;
       }
 
-      toast.info("Step 2/2: Opening private position - approve in Shield...");
-      result = await execute(
-        PROGRAMS.CORE,
+      result = await runPrivateStep(
+        4,
+        "Open private position",
         "open_position",
         [vault.input, pool.input, paramsInput, address],
-        1_000_000,
+        2_000_000,
+        3_000_000,
       );
+
+      if (!result) {
+        const detail = (getLastError() ?? "unknown error").trim();
+        if (isAlreadyExistsLedgerError(detail)) {
+          const previousVaultInput = vault.input;
+          const previousPoolInput = pool.input;
+          const refreshed = await waitForFreshState(previousVaultInput, previousPoolInput, collateralMicro);
+          const freshVault = refreshed?.vault;
+          const freshPool = refreshed?.pool;
+          if (freshVault && freshPool && (freshVault.input !== previousVaultInput || freshPool.input !== previousPoolInput)) {
+            toast.info("Detected stale private records. Retrying Step 4/4 with refreshed records...");
+            result = await execute(coreProgram, "open_position", [freshVault.input, freshPool.input, paramsInput, address], 3_000_000, {
+              suppressSuccessToast: true,
+            });
+            if (result) {
+              toast.success("Step 4/4 confirmed. Private position flow complete.");
+            }
+          }
+          if (!result) {
+            toast.error("Previous private tx is still pending/spent this record. Wait for finalize, refresh, then retry.");
+            setTimeout(() => window.dispatchEvent(new Event("autoperp:positions-changed")), 3000);
+            return;
+          }
+        }
+      }
     } else {
       toast.info(`Step 1/2: Locking ${collateral} USDCx as collateral - approve in Shield...`);
 
       const depositResult = await execute(
-        PROGRAMS.CORE,
+        coreProgram,
         "deposit_collateral",
         [toUsdcx(collateral)],
         500_000,
@@ -334,7 +472,7 @@ const OrderForm = ({ market }: OrderFormProps) => {
 
       setTimeout(() => refetchBalance(), 2500);
       toast.info("Step 2/2: Opening position - approve in Shield...");
-      result = await execute(PROGRAMS.CORE, "open_position", [paramsInput, address], 1_000_000);
+      result = await execute(coreProgram, "open_position", [paramsInput, address], 1_000_000);
     }
 
     if (result) {
@@ -646,7 +784,9 @@ const OrderForm = ({ market }: OrderFormProps) => {
         </div>
         <div className="flex justify-between">
           <span className="text-muted-foreground">Privacy</span>
-          <span className="text-success text-[10px]">Private position record</span>
+          <span className="text-[10px] text-success">
+            {isPrivateMode ? "Private position record" : "Public settlement mode"}
+          </span>
         </div>
       </div>
 

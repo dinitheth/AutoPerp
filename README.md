@@ -5,7 +5,23 @@ AutoPerp is a privacy-first perpetual trading protocol and application stack on 
 It supports two core operating modes:
 
 - Settlement mode (`autoperp_core_v5.aleo`): integrates with `test_usdcx_stablecoin.aleo` for real testnet settlement flows.
-- Strict private mode (`autoperp_core_private_v1.aleo`): record-only private state transitions for maximum on-chain privacy.
+- Private mode (`autoperp_core_private_v2.aleo`): private record-based trading state with USDCx-backed collateral settlement.
+
+## Mode Snapshots
+
+Private - autoperp_core_private_v2.aleo
+
+<a href="https://ibb.co/jkbVXXkK"><img src="https://i.ibb.co/5hGYHHhD/Private.jpg" alt="Private" border="0"></a>
+
+Public - autoperp_core_v5.aleo
+
+<a href="https://ibb.co/RpW122DN"><img src="https://i.ibb.co/wN1Tyyz7/Public.jpg" alt="Public" border="0"></a>
+
+Update note: ~~`autoperp_core_private_v1.aleo`~~ is replaced by `autoperp_core_private_v2.aleo` with new features:
+
+- USDCx-backed private collateral deposit/withdraw settlement
+- improved private approval flow (4-step guided transactions)
+- runtime mode support for Public/Private trading
 
 ## Product Summary
 
@@ -45,7 +61,7 @@ AutoPerp provides:
 ### Active Programs
 
 - `autoperp_core_v5.aleo` (settlement-capable core)
-- `autoperp_core_private_v1.aleo` (strict-private core)
+- `autoperp_core_private_v2.aleo` (private record-based core)
 - `autoperp_agent_v2.aleo` (AgentAuth and delegated execution receipts)
 - `autoperp_oracle.aleo` (price, mark, funding state)
 - `test_usdcx_stablecoin.aleo` (testnet USDCx token rails)
@@ -56,14 +72,13 @@ AutoPerp provides:
 
 ## Privacy Model
 
-### Strict Private Mode
+### Private Mode
 
-`autoperp_core_private_v1.aleo` is a record-only design:
+`autoperp_core_private_v2.aleo` is a hybrid design:
 
-- No public mappings
-- No public transition inputs
-- No public token transfer calls
+- No public mappings for position/state accounting
 - State transitions use private records (`TraderVault`, `PoolState`, `PositionRecord`, `LPToken`)
+- Collateral settlement calls `test_usdcx_stablecoin.aleo` public transfer rails
 
 ### Settlement Mode
 
@@ -97,7 +112,7 @@ flowchart TB
     end
 
     subgraph Chain[Aleo Programs]
-        C1[autoperp_core_private_v1.aleo]
+        C1[autoperp_core_private_v2.aleo]
         C2[autoperp_core_v5.aleo]
         C3[autoperp_agent_v2.aleo]
         C4[autoperp_oracle.aleo]
@@ -153,9 +168,9 @@ flowchart TB
 
 ## Contract Roles
 
-### `autoperp_core_private_v1.aleo`
+### `autoperp_core_private_v2.aleo`
 
-Record-only private perpetual core:
+Private record-based perpetual core:
 
 - Private vault state (`TraderVault`)
 - Private pool state (`PoolState`)
@@ -189,25 +204,16 @@ Oracle references:
 
 ## Frontend Contract Wiring
 
-Current frontend defaults to strict private core:
+Program IDs are hardcoded in code (no runtime env switching for core/agent/oracle/pool):
 
-- `PROGRAMS.CORE` default: `autoperp_core_private_v1.aleo`
-- Private record bootstrap in transaction flows:
-  - `create_vault` when vault record is missing
-  - `bootstrap_pool` when pool state record is missing
-- Trade open/close and pool deposit paths use private-record signatures in strict-private mode
+- `PROGRAMS.CORE`: `autoperp_core_private_v2.aleo`
+- `PRIVATE_CORE_PROGRAM`: `autoperp_core_private_v2.aleo`
+- `PUBLIC_CORE_PROGRAM`: `autoperp_core_v5.aleo`
+- `PROGRAMS.AGENT`: `autoperp_agent_v2.aleo`
+- `PROGRAMS.ORACLE`: `autoperp_oracle.aleo`
+- `PROGRAMS.POOL`: `autoperp_pool_v2.aleo`
 
-You can override by environment variable:
-
-```env
-VITE_AUTOPERP_CORE_PROGRAM=autoperp_core_private_v1.aleo
-```
-
-To run settlement mode instead:
-
-```env
-VITE_AUTOPERP_CORE_PROGRAM=autoperp_core_v5.aleo
-```
+Trading mode is selected in-app (Public/Private switch), and resolves to the corresponding hardcoded core program.
 
 ## Build and Deploy
 
@@ -232,12 +238,6 @@ npm run build
 
 - `VITE_SUPABASE_URL`
 - `VITE_SUPABASE_PUBLISHABLE_KEY`
-- `VITE_AUTOPERP_CORE_PROGRAM`
-- `VITE_AUTOPERP_AGENT_PROGRAM`
-- `VITE_AUTOPERP_ORACLE_PROGRAM`
-- `VITE_AUTOPERP_POOL_PROGRAM`
-- `VITE_AUTOPERP_POOL_ADDRESS`
-- `VITE_AUTOPERP_REAL_SETTLEMENT`
 - `GEMINI_API_KEY` (for Supabase `agent-chat` function)
 
 ## Operational Notes

@@ -1,9 +1,15 @@
 {
-  "program": "autoperp_core_private_v1.aleo",
-  "version": "1.0.0",
-  "description": "AutoPerp Core Private V1 - record-only private perpetual core with private LP accounting",
+  "program": "autoperp_core_private_v2.aleo",
+  "version": "2.0.0",
+  "description": "AutoPerp Core Private V2 - private record-based trading state with USDCx-backed collateral settlement",
   "license": "MIT",
   "leo": "3.4.0",
-  "dependencies": null,
+  "dependencies": [
+    {
+      "name": "test_usdcx_stablecoin.aleo",
+      "location": "network",
+      "network": "testnet"
+    }
+  ],
   "dev_dependencies": null
 }

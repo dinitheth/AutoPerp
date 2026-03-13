@@ -11,6 +11,7 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
+import { setWalletReconnectEnabled } from "@/lib/walletSession";
 
 const ConnectWalletButton = ({ className }: { className?: string }) => {
   const {
@@ -59,6 +60,7 @@ const ConnectWalletButton = ({ className }: { className?: string }) => {
         selectWallet(shieldWallet.adapter.name);
       }
       await connect(Network.TESTNET);
+      setWalletReconnectEnabled(true);
     } catch (err) {
       console.error("Shield connection failed:", err);
     }
@@ -67,6 +69,7 @@ const ConnectWalletButton = ({ className }: { className?: string }) => {
   const handleDisconnect = async () => {
     try {
       await disconnect();
+      setWalletReconnectEnabled(false);
       setShowDialog(false);
     } catch (err) {
       console.error("Wallet disconnect failed:", err);

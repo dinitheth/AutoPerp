@@ -8,9 +8,9 @@ Deploy these programs for the working settlement-enabled stack:
 2. `autoperp_agent_v2.aleo`
 3. `autoperp_core_v5.aleo`
 
-For strict privacy demonstrations, an additional record-only core exists:
+For private record-based demonstrations, an additional core exists:
 
-4. `autoperp_core_private_v1.aleo` (no public mappings, no public transition inputs, no public token transfer calls)
+4. `autoperp_core_private_v2.aleo` (private record state with public USDCx settlement rails)
 
 `autoperp_core_v5.aleo` is now the single settlement contract for:
 
@@ -32,7 +32,7 @@ For strict privacy demonstrations, an additional record-only core exists:
 | `autoperp_oracle.aleo` | Oracle prices and mark/funding data |
 | `autoperp_agent_v2.aleo` | Agent delegation and execution |
 | `autoperp_core_v5.aleo` | Unified settlement, trading, LP accounting |
-| `autoperp_core_private_v1.aleo` | Strict-private record-only perpetual core for privacy-first judging tracks |
+| `autoperp_core_private_v2.aleo` | Private record-based perpetual core with USDCx-backed collateral settlement |
 | `autoperp_pool_v2.aleo` | Deprecated standalone pool helper |
 
 ## Precision
@@ -57,4 +57,4 @@ The old `autoperp_core_v2.aleo` and `autoperp_pool.aleo` testnet deployments onl
 
 For the latest private-first API and on-chain LP claimable-fee estimation, redeploy `autoperp_core_v5.aleo` and set `VITE_AUTOPERP_CORE_PROGRAM=autoperp_core_v5.aleo` in your frontend environment.
 
-If judging criteria require maximum privacy over real-token settlement parity, deploy `autoperp_core_private_v1.aleo`. That path keeps state and transitions private via records, but requires a private-asset UX/integration flow rather than the current public USDCx settlement rails.
+If judging criteria require private position/state records with real-token collateral settlement, deploy `autoperp_core_private_v2.aleo`. That path keeps state transitions record-based while collateral transfer legs use public USDCx rails.

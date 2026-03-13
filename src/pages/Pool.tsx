@@ -230,7 +230,7 @@ const Pool = () => {
       return;
     }
 
-    if (!STRICT_PRIVATE_CORE_ACTIVE && usdcxBalance && depositAmount > parseFloat(usdcxBalance)) {
+    if (usdcxBalance && depositAmount > parseFloat(usdcxBalance)) {
       toast.error("Insufficient USDCx balance.");
       return;
     }

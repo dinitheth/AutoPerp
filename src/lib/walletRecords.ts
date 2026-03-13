@@ -38,7 +38,45 @@ export async function requestProgramRecords(
       throw error;
     }
 
-    await reauthorizeWallet(disconnect, connect);
-    return await requestRecords(program, includePlaintext);
+    // Avoid auto re-auth loops from polling/background fetches.
+    // Wallet reconnect should be explicitly user-initiated from UI.
+    throw error;
   }
+}
+
+export async function requestProgramRecordsAny(
+  requestRecords: RequestRecordsFn,
+  programs: string[],
+  includePlaintext = true,
+  disconnect?: DisconnectFn,
+  connect?: ConnectFn,
+): Promise<unknown[]> {
+  const uniquePrograms = Array.from(
+    new Set(programs.map((p) => p.trim()).filter(Boolean)),
+  );
+
+  const merged: unknown[] = [];
+  let lastError: unknown = null;
+
+  for (const program of uniquePrograms) {
+    try {
+      const records = await requestProgramRecords(
+        requestRecords,
+        program,
+        includePlaintext,
+        disconnect,
+        connect,
+      );
+      if (Array.isArray(records) && records.length > 0) {
+        merged.push(...records);
+      }
+    } catch (error) {
+      lastError = error;
+      if (isProgramNotAllowedError(error)) continue;
+    }
+  }
+
+  if (merged.length > 0) return merged;
+  if (lastError) throw lastError;
+  return [];
 }

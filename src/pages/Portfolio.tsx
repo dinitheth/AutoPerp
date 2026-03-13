@@ -5,9 +5,10 @@ import useUsdcxBalance from "@/hooks/useUsdcxBalance";
 import usePrices from "@/hooks/usePrices";
 import { useWallet } from "@provablehq/aleo-wallet-adaptor-react";
 import { PROGRAMS } from "@/hooks/useAleoTransaction";
+import { PRIVATE_CORE_PROGRAM } from "@/lib/protocol";
 import { cn } from "@/lib/utils";
 import { parseAleoPositionRecord } from "@/lib/positionRecord";
-import { requestProgramRecords } from "@/lib/walletRecords";
+import { requestProgramRecordsAny } from "@/lib/walletRecords";
 import {
   addEquityPoint,
   loadEquity,
@@ -57,6 +58,12 @@ const MARKET_NAMES: Record<string, string> = {
   "1": "ETH-USD",
   "2": "ALEO-USD",
 };
+
+const POSITION_RECORD_PROGRAM_CANDIDATES = [
+  PROGRAMS.CORE,
+  PRIVATE_CORE_PROGRAM,
+  "autoperp_core_v5.aleo",
+];
 
 function n2(raw: string | null | undefined): number {
   const n = parseFloat(raw ?? "0");
@@ -427,9 +434,9 @@ const Portfolio = () => {
     try {
       const fetchWithTimeout = (includePrivate: boolean, timeoutMs: number) =>
         Promise.race<unknown[]>([
-          requestProgramRecords(
+          requestProgramRecordsAny(
             requestRecords,
-            PROGRAMS.CORE,
+            POSITION_RECORD_PROGRAM_CANDIDATES,
             includePrivate,
             disconnect,
             connect,

@@ -5,12 +5,11 @@ import { toast } from "sonner";
 import { useWallet } from "@provablehq/aleo-wallet-adaptor-react";
 import {
   useAleoTransaction,
-  PROGRAMS,
   toPrice,
 } from "@/hooks/useAleoTransaction";
 import usePrices from "@/hooks/usePrices";
 import { LEGACY_SETTLEMENT_MESSAGE, REAL_SETTLEMENT_AVAILABLE } from "@/lib/protocol";
-import { STRICT_PRIVATE_CORE_ACTIVE } from "@/lib/protocol";
+import { PRIVATE_CORE_PROGRAM, PUBLIC_CORE_PROGRAM } from "@/lib/protocol";
 import { addTradeEvent, newId } from "@/lib/portfolioStore";
 import {
   getPositionRecordOwner,
@@ -19,7 +18,7 @@ import {
   serializePositionRecordInput,
 } from "@/lib/positionRecord";
 import { findPoolStateRecord, findVaultRecord } from "@/lib/privateCoreRecords";
-import { isProgramNotAllowedError, requestProgramRecords } from "@/lib/walletRecords";
+import { isProgramNotAllowedError, requestProgramRecords, requestProgramRecordsAny } from "@/lib/walletRecords";
 
 const POSITIONS_SNAPSHOT_KEY = "autoperp:positions:snapshot";
 
@@ -78,7 +77,12 @@ const MARKET_IDS: Record<string, string> = {
   "ALEO-USD": "2u8",
 };
 
-const PositionsList = () => {
+interface PositionsListProps {
+  coreProgram: string;
+  isPrivateMode: boolean;
+}
+
+const PositionsList = ({ coreProgram, isPrivateMode }: PositionsListProps) => {
   const [tab, setTab] = useState<"positions" | "orders" | "history">("positions");
   const [positions, setPositions] = useState<PositionRecord[]>([]);
   const [loadingRecords, setLoadingRecords] = useState(false);
@@ -88,6 +92,9 @@ const PositionsList = () => {
   const { connected, address, requestRecords, connect, disconnect } = useWallet();
   const { execute, loading: txLoading, getLastError } = useAleoTransaction();
   const { prices, getPrice } = usePrices();
+  const positionRecordProgramCandidates = isPrivateMode
+    ? [coreProgram, PRIVATE_CORE_PROGRAM]
+    : [coreProgram, PUBLIC_CORE_PROGRAM];
 
   const fetchPositions = useCallback(async () => {
     if (!connected) {
@@ -96,9 +103,9 @@ const PositionsList = () => {
     }
     setLoadingRecords(true);
     try {
-      const allRecords = await requestProgramRecords(
+      const allRecords = await requestProgramRecordsAny(
         requestRecords,
-        PROGRAMS.CORE,
+        positionRecordProgramCandidates,
         true,
         disconnect,
         connect,
@@ -153,7 +160,7 @@ const PositionsList = () => {
     } finally {
       setLoadingRecords(false);
     }
-  }, [connected, requestRecords, getPrice, address]);
+  }, [connected, requestRecords, getPrice, address, connect, disconnect, positionRecordProgramCandidates]);
 
 
   useEffect(() => {
@@ -201,9 +208,9 @@ const PositionsList = () => {
     const currentAddress = (address ?? "").trim().toLowerCase();
 
     try {
-      const latest = await requestProgramRecords(
+      const latest = await requestProgramRecordsAny(
         requestRecords,
-        PROGRAMS.CORE,
+        positionRecordProgramCandidates,
         true,
         disconnect,
         connect,
@@ -248,7 +255,7 @@ const PositionsList = () => {
 
     let result = null;
 
-    if (STRICT_PRIVATE_CORE_ACTIVE) {
+    if (isPrivateMode) {
       const poolId = MARKET_IDS[pos.market];
       if (!poolId) {
         toast.error("Unsupported market for private close.");
@@ -260,7 +267,7 @@ const PositionsList = () => {
       try {
         latest = await requestProgramRecords(
           requestRecords,
-          PROGRAMS.CORE,
+          coreProgram,
           true,
           disconnect,
           connect,
@@ -279,14 +286,14 @@ const PositionsList = () => {
         return;
       }
 
-      result = await execute(PROGRAMS.CORE, "close_position", [
+      result = await execute(coreProgram, "close_position", [
         recordInput,
         vault.input,
         pool.input,
         toPrice(currentPrice),
       ], 2_000_000);
     } else {
-      result = await execute(PROGRAMS.CORE, "close_position", [
+      result = await execute(coreProgram, "close_position", [
         recordInput,
         toPrice(currentPrice),
       ], 2_000_000);
@@ -294,12 +301,12 @@ const PositionsList = () => {
 
     if (!result) {
       // Retry once with a higher fee to reduce occasional wallet/prover rejection.
-      if (STRICT_PRIVATE_CORE_ACTIVE) {
+      if (isPrivateMode) {
         let latest: unknown[] = [];
         try {
           latest = await requestProgramRecords(
             requestRecords,
-            PROGRAMS.CORE,
+            coreProgram,
             true,
             disconnect,
             connect,
@@ -312,7 +319,7 @@ const PositionsList = () => {
         const vault = findVaultRecord(latest, owner);
         const pool = poolId ? findPoolStateRecord(latest, owner, poolId) : null;
         if (vault && pool) {
-          result = await execute(PROGRAMS.CORE, "close_position", [
+          result = await execute(coreProgram, "close_position", [
             recordInput,
             vault.input,
             pool.input,
@@ -320,7 +327,7 @@ const PositionsList = () => {
           ], 5_000_000);
         }
       } else {
-        result = await execute(PROGRAMS.CORE, "close_position", [
+        result = await execute(coreProgram, "close_position", [
           recordInput,
           toPrice(currentPrice),
         ], 5_000_000);
@@ -430,7 +437,7 @@ const PositionsList = () => {
                     <tr key={pos.id} className="border-t border-border hover:bg-card/50 transition-colors">
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-2">
-                          <Lock className="h-3 w-3 text-muted-foreground" />
+                          {isPrivateMode && <Lock className="h-3 w-3 text-muted-foreground" />}
                           <span className="text-xs font-medium text-foreground">{pos.market}</span>
                           <span
                             className={cn(
@@ -492,7 +499,7 @@ const PositionsList = () => {
                   <div key={pos.id} className="p-4 space-y-3">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
-                        <Lock className="h-3 w-3 text-muted-foreground" />
+                        {isPrivateMode && <Lock className="h-3 w-3 text-muted-foreground" />}
                         <span className="text-sm font-medium text-foreground">{pos.market}</span>
                         <span
                           className={cn(
