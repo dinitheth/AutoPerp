@@ -38,8 +38,8 @@ const suggestions = [
   },
   {
     icon: BarChart3,
-    label: "Check my portfolio",
-    message: "Show me my current portfolio risk analysis and PnL",
+    label: "Set SL/TP",
+    message: "Help me set stop-loss and take-profit for a BTC-USD position",
   },
   {
     icon: Wallet,
