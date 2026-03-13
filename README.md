@@ -9,15 +9,15 @@ It supports two core operating modes:
 
 ## Mode Snapshots
 
-Private - autoperp_core_private_v2.aleo
+Private open_position - autoperp_core_private_v2.aleo
 
 <a href="https://ibb.co/jkbVXXkK"><img src="https://i.ibb.co/5hGYHHhD/Private.jpg" alt="Private" border="0"></a>
 
-Public - autoperp_core_v5.aleo
+Public open_position - autoperp_core_v5.aleo
 
 <a href="https://ibb.co/RpW122DN"><img src="https://i.ibb.co/wN1Tyyz7/Public.jpg" alt="Public" border="0"></a>
 
-Update note: ~~`autoperp_core_private_v1.aleo`~~ is replaced by `autoperp_core_private_v2.aleo` with new features:
+Update: ~~autoperp_core_private_v1.aleo~~ → `autoperp_core_private_v2.aleo` with new features:
 
 - USDCx-backed private collateral deposit/withdraw settlement
 - improved private approval flow (4-step guided transactions)
