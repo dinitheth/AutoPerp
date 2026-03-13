@@ -29,6 +29,8 @@ const sections = [
     title: "Programs",
     content: `autoperp_core_v5.aleo: trading, collateral, liquidity, fees, withdrawals
 
+autoperp_core_private_v2.aleo: private record-based trading and LP state with USDCx-backed collateral settlement
+
 autoperp_agent_v2.aleo: scoped agent authorization and execution
 
 autoperp_oracle.aleo: market price and risk data

@@ -21,15 +21,13 @@ import useUsdcxBalance from "@/hooks/useUsdcxBalance";
 import { useWallet } from "@provablehq/aleo-wallet-adaptor-react";
 import AgentMessageContent from "@/components/agent/AgentMessageContent";
 import TradeSetupForm from "@/components/agent/TradeSetupForm";
-import { useAleoTransaction, PROGRAMS, MARKET_IDS, toPrice, toUsdcx } from "@/hooks/useAleoTransaction";
+import { useAleoTransaction, API_BASE, MARKET_IDS, toPrice, toUsdcx } from "@/hooks/useAleoTransaction";
 import { addOrder, addTradeEvent, newId } from "@/lib/portfolioStore";
 import {
   LEGACY_SETTLEMENT_MESSAGE,
+  PUBLIC_CORE_PROGRAM,
   REAL_SETTLEMENT_AVAILABLE,
-  STRICT_PRIVATE_CORE_ACTIVE,
 } from "@/lib/protocol";
-import { findPoolStateRecord, findVaultRecord } from "@/lib/privateCoreRecords";
-import { isProgramNotAllowedError, requestProgramRecords } from "@/lib/walletRecords";
 import { toast } from "sonner";
 
 const suggestions = [
@@ -67,9 +65,10 @@ const Agent = () => {
   });
 
   const { prices, getPrice } = usePrices();
-  const { usdcxBalance, vaultBalance, creditsBalance, refetch: refetchBalance } = useUsdcxBalance();
-  const { connected, address, requestRecords, connect, disconnect } = useWallet();
+  const { usdcxBalance, creditsBalance, refetch: refetchBalance } = useUsdcxBalance();
+  const { connected, address } = useWallet();
   const { execute, loading: txLoading, getLastError } = useAleoTransaction();
+  const AGENT_CORE_PROGRAM = PUBLIC_CORE_PROGRAM;
 
   const { messages, isLoading, sendMessage, queueOpenPosition, appendAgentMessage, getPendingTradeParams, markActionExecuted, rejectAction } =
     useAgent({
@@ -174,120 +173,61 @@ const Agent = () => {
     const tp = tradeParams.takeProfit ? toPrice(tradeParams.takeProfit) : "0u64";
     const paramsInput = `{ market_id: ${marketId}, direction: ${directionVal}, collateral: ${toUsdcx(tradeParams.collateral)}, leverage: ${tradeParams.leverage}u64, entry_price: ${toPrice(currentPrice)}, stop_loss: ${sl}, take_profit: ${tp} }`;
     let result = null;
+    const parseMappingBalance = (raw: string): number => {
+      const structMatch = raw.match(/balance:\s*([\d_]+)u(?:64|128)/i);
+      const value = structMatch?.[1] ?? raw;
+      const cleaned = value
+        .replace(/"/g, "")
+        .replace(/u\d+$/i, "")
+        .replace(/field$/i, "")
+        .replace(/_/g, "")
+        .trim();
+      const n = Number.parseInt(cleaned, 10);
+      return Number.isFinite(n) ? n : 0;
+    };
 
-    if (STRICT_PRIVATE_CORE_ACTIVE) {
-      const owner = address;
-
-      const loadState = async () => {
-        const records = await requestProgramRecords(
-          requestRecords,
-          PROGRAMS.CORE,
-          true,
-          disconnect,
-          connect,
-        );
-        const vault = findVaultRecord(records, owner);
-        const pool = findPoolStateRecord(records, owner, marketId);
-        return { vault, pool };
-      };
-
-      let vault: ReturnType<typeof findVaultRecord>;
-      let pool: ReturnType<typeof findPoolStateRecord>;
-      try {
-        ({ vault, pool } = await loadState());
-      } catch (error) {
-        const err = isProgramNotAllowedError(error)
-          ? "Shield denied record access for this program. Reconnect wallet and approve permissions."
-          : "Could not load private records from Shield.";
-        rejectAction(msgId);
-        appendAgentMessage(err);
-        toast.error(err);
-        return;
+    let publicVaultBal = 0;
+    try {
+      const vres = await fetch(`${API_BASE}/program/${AGENT_CORE_PROGRAM}/mapping/vault/${address}`);
+      if (vres.ok) {
+        const vraw = await vres.text();
+        publicVaultBal = parseMappingBalance(vraw) / 1_000_000;
       }
-
-      if (!vault) {
-        const created = await execute(PROGRAMS.CORE, "create_vault", ["0u64"]);
-        if (!created) {
-          rejectAction(msgId);
-          appendAgentMessage("Private vault initialization failed.");
-          return;
-        }
-        ({ vault, pool } = await loadState());
-      }
-
-      if (!pool) {
-        const bootstrapped = await execute(PROGRAMS.CORE, "bootstrap_pool", [marketId, "0u64"]);
-        if (!bootstrapped) {
-          rejectAction(msgId);
-          appendAgentMessage("Private pool initialization failed.");
-          return;
-        }
-        ({ vault, pool } = await loadState());
-      }
-
-      if (!vault || !pool) {
-        rejectAction(msgId);
-        appendAgentMessage("Could not load private state records for trade execution.");
-        return;
-      }
-
-      const collateralMicro = Math.floor(tradeParams.collateral * 1_000_000);
-      const neededTopUp = Math.max(0, collateralMicro - vault.balanceMicro);
-
-      if (neededTopUp > 0) {
-        toast.info(`Funding private vault by ${(neededTopUp / 1_000_000).toFixed(6)} units...`);
-        const funded = await execute(PROGRAMS.CORE, "deposit_collateral", [vault.input, `${neededTopUp}u64`]);
-        if (!funded) {
-          const err = (getLastError() ?? "Unknown error").trim();
-          rejectAction(msgId);
-          appendAgentMessage(`Private vault funding failed: ${err}`);
-          return;
-        }
-        ({ vault, pool } = await loadState());
-      }
-
-      if (!vault || !pool) {
-        rejectAction(msgId);
-        appendAgentMessage("Could not refresh private state after vault funding.");
-        return;
-      }
-
-      toast.info("Opening private position on Aleo - approve in Shield...");
-      result = await execute(PROGRAMS.CORE, "open_position", [vault.input, pool.input, paramsInput, address]);
-    } else {
-      const walletBal = parseFloat(usdcxBalance ?? "0");
-      const vaultBal = parseFloat(vaultBalance ?? "0");
-      const neededDeposit = Math.max(0, tradeParams.collateral - vaultBal);
-
-      if (neededDeposit > walletBal) {
-        toast.error(
-          `Insufficient balance: need ${neededDeposit.toFixed(2)} USDCx from wallet, but only ${walletBal.toFixed(2)} USDCx is available.`,
-        );
-        rejectAction(msgId);
-        appendAgentMessage(
-          `Trade rejected - insufficient USDCx in wallet. You need ${neededDeposit.toFixed(
-            2,
-          )} USDCx to lock collateral, but your wallet has ${walletBal.toFixed(2)} USDCx available.`,
-        );
-        return;
-      }
-
-      if (neededDeposit > 0) {
-        toast.info(`Locking ${neededDeposit.toFixed(2)} USDCx as collateral - approve in Shield...`);
-        const depositResult = await execute(PROGRAMS.CORE, "deposit_collateral", [toUsdcx(neededDeposit)]);
-        if (!depositResult) {
-          const err = (getLastError() ?? "Unknown error").trim();
-          rejectAction(msgId);
-          appendAgentMessage(`Transaction failed while locking collateral: ${err}`);
-          return;
-        }
-        setTimeout(() => refetchBalance(), 2500);
-        setTimeout(() => refetchBalance(), 8000);
-      }
-
-      toast.info("Opening position on Aleo - approve in Shield...");
-      result = await execute(PROGRAMS.CORE, "open_position", [paramsInput, address]);
+    } catch {
+      publicVaultBal = 0;
     }
+
+    const walletBal = parseFloat(usdcxBalance ?? "0");
+    const neededDeposit = Math.max(0, tradeParams.collateral - publicVaultBal);
+
+    if (neededDeposit > walletBal) {
+      toast.error(
+        `Insufficient balance: need ${neededDeposit.toFixed(2)} USDCx from wallet, but only ${walletBal.toFixed(2)} USDCx is available.`,
+      );
+      rejectAction(msgId);
+      appendAgentMessage(
+        `Trade rejected - insufficient USDCx in wallet. You need ${neededDeposit.toFixed(
+          2,
+        )} USDCx to lock collateral, but your wallet has ${walletBal.toFixed(2)} USDCx available.`,
+      );
+      return;
+    }
+
+    if (neededDeposit > 0) {
+      toast.info(`Locking ${neededDeposit.toFixed(2)} USDCx as collateral (public mode) - approve in Shield...`);
+      const depositResult = await execute(AGENT_CORE_PROGRAM, "deposit_collateral", [toUsdcx(neededDeposit)]);
+      if (!depositResult) {
+        const err = (getLastError() ?? "Unknown error").trim();
+        rejectAction(msgId);
+        appendAgentMessage(`Transaction failed while locking collateral: ${err}`);
+        return;
+      }
+      setTimeout(() => refetchBalance(), 2500);
+      setTimeout(() => refetchBalance(), 8000);
+    }
+
+    toast.info("Opening position on Aleo (public mode) - approve in Shield...");
+    result = await execute(AGENT_CORE_PROGRAM, "open_position", [paramsInput, address]);
 
     if (result) {
       markActionExecuted(msgId);
@@ -359,7 +299,7 @@ const Agent = () => {
     refetchBalance,
     rejectAction,
     usdcxBalance,
-    vaultBalance,
+    AGENT_CORE_PROGRAM,
   ]);
 
   // Note: Shield wallet approvals are most reliable when triggered by a user gesture (button click).
@@ -455,7 +395,7 @@ const Agent = () => {
                 </div>
                 <div className="flex items-center gap-1.5">
                   <Shield className="h-3 w-3 text-success" />
-                  <span className="text-[10px] text-success">Privacy-aware mode</span>
+                  <span className="text-[10px] text-success">Agent uses public mode</span>
                 </div>
               </div>
             </div>

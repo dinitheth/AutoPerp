@@ -47,6 +47,46 @@ function parseMappingBalance(raw: string): number {
   return parseUnsignedInt(raw);
 }
 
+function extractRecordPlaintext(record: unknown): string {
+  const source = record as Record<string, unknown>;
+  return (
+    (typeof source.recordPlaintext === "string" && source.recordPlaintext) ||
+    (typeof source.plaintext === "string" && source.plaintext) ||
+    (typeof source.record === "string" && source.record) ||
+    (typeof source.data === "string" && source.data) ||
+    (typeof record === "string" ? record : "")
+  );
+}
+
+function parsePrivatePoolState(plain: string): { poolId: string; balance: number; fees: number; shares: number } | null {
+  if (!plain) return null;
+  if (!/pool_id\s*:/i.test(plain) || !/balance\s*:/i.test(plain) || !/fees\s*:/i.test(plain) || !/shares\s*:/i.test(plain)) {
+    return null;
+  }
+  const poolMatch = plain.match(/pool_id\s*:\s*([^,\n}]+)/i);
+  const balanceMatch = plain.match(/balance\s*:\s*([^,\n}]+)/i);
+  const feesMatch = plain.match(/fees\s*:\s*([^,\n}]+)/i);
+  const sharesMatch = plain.match(/shares\s*:\s*([^,\n}]+)/i);
+  if (!poolMatch || !balanceMatch || !feesMatch || !sharesMatch) return null;
+
+  const parseRaw = (value: string): number => {
+    const cleaned = value
+      .replace(/\.(private|public)$/i, "")
+      .replace(/u\d+$/i, "")
+      .replace(/_/g, "")
+      .trim();
+    const n = Number.parseInt(cleaned, 10);
+    return Number.isFinite(n) ? n : 0;
+  };
+
+  return {
+    poolId: String(poolMatch[1]).replace(/\.(private|public)$/i, "").trim(),
+    balance: parseRaw(balanceMatch[1]),
+    fees: parseRaw(feesMatch[1]),
+    shares: parseRaw(sharesMatch[1]),
+  };
+}
+
 function estimateClaimableFees(
   userShares: number,
   totalPoolShares: number,
@@ -75,6 +115,58 @@ const Pool = () => {
     if (!REAL_SETTLEMENT_AVAILABLE) return;
     setLoadingPoolBalances(true);
     try {
+      if (STRICT_PRIVATE_CORE_ACTIVE) {
+        if (!connected || !address) {
+          setPoolBalances({});
+          setPoolFees({});
+          setPoolShares({});
+          return;
+        }
+
+        const records = await requestProgramRecords(
+          requestRecords,
+          PROGRAMS.CORE,
+          true,
+          disconnect,
+          connect,
+        );
+
+        const nextBalances: Record<string, number> = {};
+        const nextFees: Record<string, number> = {};
+        const nextShares: Record<string, number> = {};
+
+        for (const p of pools) {
+          nextBalances[p.poolId] = 0;
+          nextFees[p.poolId] = 0;
+          nextShares[p.poolId] = 0;
+        }
+
+        const owner = (address ?? "").trim().toLowerCase();
+        for (const record of records) {
+          const plain = extractRecordPlaintext(record);
+          if (!plain || !/owner\s*:/i.test(plain)) continue;
+
+          const ownerMatch = plain.match(/owner\s*:\s*([^,\n}]+)/i);
+          const recOwner = ownerMatch
+            ? String(ownerMatch[1]).replace(/\.(private|public)$/i, "").trim().toLowerCase()
+            : "";
+          if (!recOwner || recOwner !== owner) continue;
+
+          const parsed = parsePrivatePoolState(plain);
+          if (!parsed) continue;
+          if (!Object.prototype.hasOwnProperty.call(nextBalances, parsed.poolId)) continue;
+
+          nextBalances[parsed.poolId] = parsed.balance / 1_000_000;
+          nextFees[parsed.poolId] = parsed.fees / 1_000_000;
+          nextShares[parsed.poolId] = parsed.shares;
+        }
+
+        setPoolBalances(nextBalances);
+        setPoolFees(nextFees);
+        setPoolShares(nextShares);
+        return;
+      }
+
       const entries = await Promise.all(
         pools.map(async (p) => {
           try {
@@ -117,10 +209,14 @@ const Pool = () => {
       setPoolBalances(Object.fromEntries(entries));
       setPoolFees(Object.fromEntries(feeEntries));
       setPoolShares(Object.fromEntries(shareEntries));
+    } catch (error) {
+      if (isProgramNotAllowedError(error)) {
+        toast.error("Shield blocked private pool record access. Reconnect wallet and approve program permissions.");
+      }
     } finally {
       setLoadingPoolBalances(false);
     }
-  }, []);
+  }, [connected, address, requestRecords, disconnect, connect]);
 
   const refreshUserLp = useCallback(async () => {
     if (!connected) {
