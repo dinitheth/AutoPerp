@@ -71,7 +71,7 @@ Aleo Credits: ${ctx.creditsBalance ?? "Not available"}
 - AgentAuth permission primitives are deployed; full autonomous execution is in progress
 - Minimum collateral: 1 USDCx
 - Testnet only
-- All trades are executed on-chain via autoperp_core_v5.aleo
+- Trades are executed on-chain via the selected core program (Public: autoperp_core_v5.aleo, Private: autoperp_core_private_v2.aleo)
 
 ## CRITICAL VALIDATION RULES
 1. Wallet must be connected. If not, tell the user to connect Shield wallet first.

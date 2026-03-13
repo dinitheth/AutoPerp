@@ -55,6 +55,6 @@ cd ../autoperp_pool && leo build
 
 The old `autoperp_core_v2.aleo` and `autoperp_pool.aleo` testnet deployments only changed internal mappings and did not move real USDCx. The fixed stack in this repo requires redeploying `autoperp_core_v5.aleo` before enabling live trading or pool deposits in the frontend.
 
-For the latest private-first API and on-chain LP claimable-fee estimation, redeploy `autoperp_core_v5.aleo` and set `VITE_AUTOPERP_CORE_PROGRAM=autoperp_core_v5.aleo` in your frontend environment.
+For the latest private-first API and on-chain LP claimable-fee estimation, redeploy `autoperp_core_v5.aleo`. The app now resolves Public/Private core program IDs in code via the in-app mode switch (no env-based core-program override).
 
 If judging criteria require private position/state records with real-token collateral settlement, deploy `autoperp_core_private_v2.aleo`. That path keeps state transitions record-based while collateral transfer legs use public USDCx rails.

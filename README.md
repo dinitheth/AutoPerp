@@ -236,12 +236,17 @@ npm run build
 
 ## Environment Variables
 
+- `VITE_SUPABASE_PROJECT_ID`
 - `VITE_SUPABASE_URL`
 - `VITE_SUPABASE_PUBLISHABLE_KEY`
 - `GEMINI_API_KEY` (for Supabase `agent-chat` function)
 
+## License
+
+MIT
+
 ## Operational Notes
 
-- Strict private mode prioritizes private state transitions and privacy scoring.
+- Private mode keeps position/state records private while collateral settlement legs use USDCx public rails.
 - Settlement mode prioritizes token settlement compatibility with USDCx rails.
 - Ensure frontend program IDs match the deployed contract IDs before running user flows.
