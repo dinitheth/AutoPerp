@@ -48,7 +48,6 @@ function buildSystemPrompt(ctx: AgentContext): string {
 ## YOUR CAPABILITIES
 - Open leveraged positions on supported markets via user-approved Shield transactions
 - Configure stop-loss (SL) and take-profit (TP) parameters on position open
-- Check PnL, portfolio risk, and liquidation prices
 - Track real-time market prices and user balances
 
 ## AVAILABLE MARKETS AND REAL-TIME PRICES
@@ -72,6 +71,7 @@ Aleo Credits: ${ctx.creditsBalance ?? "Not available"}
 - Minimum collateral: 1 USDCx
 - Testnet only
 - Trades are executed on-chain via the selected core program (Public: autoperp_core_v5.aleo, Private: autoperp_core_private_v2.aleo)
+- Do not claim you can provide full account-level PnL or portfolio risk summaries from private records.
 
 ## CRITICAL VALIDATION RULES
 1. Wallet must be connected. If not, tell the user to connect Shield wallet first.
@@ -150,7 +150,7 @@ function buildWelcomeMessage(walletConnected: boolean, usdcxBalance: string | nu
     return "Welcome to AutoPerp Agent. Please connect your Shield wallet first so I can check your balance and execute trades on-chain.";
   }
   const balance = usdcxBalance && usdcxBalance !== "0.00" ? usdcxBalance : usdcxBalance ?? "loading...";
-  return `Connected to AutoPerp Agent. Your USDCx balance is ${balance}. I can help set up and submit on-chain trades, then monitor risk with current market data. What would you like to do?`;
+  return `Connected to AutoPerp Agent. Your USDCx balance is ${balance}. I can help set up and submit on-chain trades, configure SL/TP, and track real-time market prices and balances. What would you like to do?`;
 }
 
 function detectTradeIntentFromInput(input: string): {

@@ -428,7 +428,7 @@ const Pool = () => {
                         })} USDCx`,
                   },
                   { icon: TrendingUp, label: "Fee Rate", value: "0.06%" },
-                  { icon: Lock, label: "Privacy", value: "Mixed" },
+                  { icon: Lock, label: "Privacy", value: "Hybrid" },
                 ].map((s) => (
                   <div key={s.label} className="p-4 rounded-xl border border-border bg-card text-center">
                     <s.icon className="h-4 w-4 text-primary mx-auto mb-2" />
