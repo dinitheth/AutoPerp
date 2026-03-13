@@ -68,6 +68,19 @@ function isDuplicateInputLedgerError(message?: string): boolean {
   return lower.includes("already exists in the ledger") || lower.includes("input id");
 }
 
+function isWalletLockedError(message?: string): boolean {
+  const lower = (message ?? "").toLowerCase();
+  return (
+    lower.includes("wallet locked") ||
+    lower.includes("is locked") ||
+    lower.includes("unlock") ||
+    lower.includes("password") ||
+    lower.includes("pin") ||
+    lower.includes("not authenticated") ||
+    lower.includes("authentication required")
+  );
+}
+
 const TX_DEBUG = import.meta.env.DEV;
 
 function txDebug(message: string, meta?: Record<string, unknown>) {
@@ -296,9 +309,9 @@ export function useAleoTransaction() {
         });
 
         if (!tempId) {
-          setError("Transaction cancelled or rejected in Shield");
+          setError("No response from Shield wallet. If Shield is locked, unlock it and retry.");
           toast.dismiss(toastId);
-          toast.error("Transaction was cancelled or rejected in Shield.");
+          toast.error("No response from Shield wallet. Unlock Shield and retry.");
           setLoading(false);
           return null;
         }
@@ -340,6 +353,11 @@ export function useAleoTransaction() {
         setError(message);
 
         if (
+          isWalletLockedError(message)
+        ) {
+          setError("Shield wallet appears locked. Unlock Shield and retry.");
+          toast.error("Shield wallet appears locked. Unlock it and retry.");
+        } else if (
           message.toLowerCase().includes("reject") ||
           message.toLowerCase().includes("cancel") ||
           message.toLowerCase().includes("denied") ||

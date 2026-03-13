@@ -466,7 +466,23 @@ const OrderForm = ({ market, coreProgram, isPrivateMode }: OrderFormProps) => {
       );
 
       if (!depositResult) {
-        toast.error("Deposit cancelled. Position not opened.");
+        const err = (getLastError() ?? "Unknown error").trim();
+        const e = err.toLowerCase();
+        const isNoResponse = e.includes("no response") || e.includes("timeout") || e.includes("could not confirm");
+        const isUserCancel = e.includes("reject") || e.includes("cancel") || e.includes("refused") || e.includes("denied");
+        const isWalletLocked = e.includes("locked") || e.includes("unlock") || e.includes("authentication");
+
+        if ((isNoResponse || isWalletLocked) && !isUserCancel) {
+          toast.error("Shield wallet is locked or not responding. Unlock Shield and retry Step 1/2.");
+          return;
+        }
+
+        if (isUserCancel) {
+          toast.error("Deposit cancelled in Shield. Position not opened.");
+          return;
+        }
+
+        toast.error(`Deposit failed: ${err}`);
         return;
       }
 

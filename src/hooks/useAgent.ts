@@ -153,6 +153,28 @@ function buildWelcomeMessage(walletConnected: boolean, usdcxBalance: string | nu
   return `Connected to AutoPerp Agent. Your USDCx balance is ${balance}. I can help set up and submit on-chain trades, then monitor risk with current market data. What would you like to do?`;
 }
 
+function detectTradeIntentFromInput(input: string): {
+  isTradeIntent: boolean;
+  market?: "BTC-USD" | "ETH-USD" | "ALEO-USD";
+} {
+  const text = input.toLowerCase();
+  const hasTradeVerb = /(open|trade|buy|sell|long|short|position)/.test(text);
+  const hasTradeParam = /(x\b|leverage|collateral|usdcx|stop\s*loss|take\s*profit|tp\b|sl\b)/.test(text);
+  const btc = /(btc\s*[-/]?\s*usd|btc)/.test(text);
+  const eth = /(eth\s*[-/]?\s*usd|eth)/.test(text);
+  const aleo = /(aleo\s*[-/]?\s*usd|aleo)/.test(text);
+
+  let market: "BTC-USD" | "ETH-USD" | "ALEO-USD" | undefined;
+  if (btc) market = "BTC-USD";
+  else if (eth) market = "ETH-USD";
+  else if (aleo) market = "ALEO-USD";
+
+  return {
+    isTradeIntent: hasTradeVerb && (hasTradeParam || Boolean(market)),
+    market,
+  };
+}
+
 export function useAgent(ctx: AgentContext) {
   const [messages, setMessages] = useState<AgentMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -178,6 +200,8 @@ export function useAgent(ctx: AgentContext) {
 
   const sendMessage = useCallback(
     async (input: string) => {
+      const typedTradeIntent = detectTradeIntentFromInput(input);
+
       const userMsg: AgentMessage = {
         id: Date.now().toString(),
         role: "user",
@@ -197,10 +221,13 @@ export function useAgent(ctx: AgentContext) {
       let action: AgentMessage["action"] | undefined;
       const tradeParams = extractTradeParams(response);
       if (
-        tradeParams ||
-        response.includes("Shall I execute") ||
-        response.includes("execute this trade") ||
-        response.includes("Confirm to proceed")
+        !typedTradeIntent.isTradeIntent &&
+        (
+          tradeParams ||
+          response.includes("Shall I execute") ||
+          response.includes("execute this trade") ||
+          response.includes("Confirm to proceed")
+        )
       ) {
         const lines = response
           .split("\n")
@@ -218,6 +245,15 @@ export function useAgent(ctx: AgentContext) {
       let showTradeForm = false;
       let preselectedMarket: string | undefined;
       let cleanContent = response;
+
+      if (typedTradeIntent.isTradeIntent) {
+        showTradeForm = true;
+        preselectedMarket = typedTradeIntent.market;
+        cleanContent = preselectedMarket
+          ? `Set up your ${preselectedMarket} position below.`
+          : "Set up your position below.";
+        action = undefined;
+      }
 
       if (response.includes("[TRADE_SETUP]")) {
         showTradeForm = true;

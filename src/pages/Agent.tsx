@@ -210,6 +210,16 @@ const Agent = () => {
       const depositResult = await execute(AGENT_CORE_PROGRAM, "deposit_collateral", [toUsdcx(neededDeposit)]);
       if (!depositResult) {
         const err = (getLastError() ?? "Unknown error").trim();
+        const e = err.toLowerCase();
+        const isNoResponse = e.includes("no response") || e.includes("timeout") || e.includes("could not confirm");
+        const isUserCancel = e.includes("reject") || e.includes("cancel") || e.includes("refused") || e.includes("denied");
+        const isWalletLocked = e.includes("locked") || e.includes("unlock") || e.includes("authentication");
+
+        if ((isNoResponse || isWalletLocked) && !isUserCancel) {
+          toast.error("Shield wallet is locked or not responding while locking collateral. Unlock Shield and retry.");
+          return;
+        }
+
         rejectAction(msgId);
         appendAgentMessage(`Transaction failed while locking collateral: ${err}`);
         return;
@@ -511,6 +521,16 @@ const Agent = () => {
 
           <div className="border-t border-border p-4 shrink-0">
             <div className="container max-w-3xl">
+              {!shouldShowSuggestions && messages.length > 1 && (
+                <div className="mb-2 flex justify-end">
+                  <button
+                    onClick={() => setSuggestionsDismissed(false)}
+                    className="h-7 px-3 text-[10px] font-medium rounded-lg border border-border text-muted-foreground hover:text-foreground transition-colors"
+                  >
+                    Back to suggestions
+                  </button>
+                </div>
+              )}
               <div className="flex items-center gap-2">
                 <input
                   type="text"
