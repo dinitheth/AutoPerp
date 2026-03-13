@@ -1,0 +1,9 @@
+{
+  "program": "autoperp_agent_v2.aleo",
+  "version": "0.1.0",
+  "description": "AutoPerp Agent - AgentAuth delegation with scoped, revocable permissions",
+  "license": "MIT",
+  "leo": "3.4.0",
+  "dependencies": null,
+  "dev_dependencies": null
+}

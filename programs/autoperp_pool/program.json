@@ -1,0 +1,15 @@
+{
+  "program": "autoperp_pool_v2.aleo",
+  "version": "2.0.0",
+  "description": "AutoPerp Pool V2 - deprecated helper program kept for legacy compatibility",
+  "license": "MIT",
+  "leo": "3.4.0",
+  "dependencies": [
+    {
+      "name": "token_registry.aleo",
+      "location": "network",
+      "network": "testnet"
+    }
+  ],
+  "dev_dependencies": null
+}

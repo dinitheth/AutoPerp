@@ -1,0 +1,9 @@
+{
+  "program": "autoperp_oracle.aleo",
+  "version": "0.1.0",
+  "description": "AutoPerp Oracle - Price feeds and mark price calculation",
+  "license": "MIT",
+  "leo": "3.4.0",
+  "dependencies": null,
+  "dev_dependencies": null
+}
