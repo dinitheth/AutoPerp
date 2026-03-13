@@ -59,10 +59,6 @@ const Agent = () => {
   const stickToBottomRef = useRef(true);
   const [suggestionsDismissed, setSuggestionsDismissed] = useState(false);
   const lastTradeStatusRef = useRef<"pending" | "executed" | "failed" | null>(null);
-  const [autoExecute, setAutoExecute] = useState(() => {
-    const raw = localStorage.getItem("autoperp:agent:autoExecute");
-    return raw ? raw === "true" : true;
-  });
 
   const { prices, getPrice } = usePrices();
   const { usdcxBalance, creditsBalance, refetch: refetchBalance } = useUsdcxBalance();
@@ -118,10 +114,6 @@ const Agent = () => {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
   }, [messages, isLoading]);
-
-  useEffect(() => {
-    localStorage.setItem("autoperp:agent:autoExecute", String(autoExecute));
-  }, [autoExecute]);
 
   const handleSend = useCallback((text?: string) => {
     const msg = text || input.trim();
@@ -346,10 +338,8 @@ const Agent = () => {
       `Risk Level: ${risk}`;
 
     const actionMsgId = queueOpenPosition(params, summary, details);
-    if (autoExecute) {
-      // Run inside the same user flow that submitted the form (more reliable for wallet popups).
-      void handleConfirm(actionMsgId, params);
-    }
+    // Run inside the same user flow that submitted the form (more reliable for wallet popups).
+    void handleConfirm(actionMsgId, params);
   };
 
   return (
@@ -375,24 +365,6 @@ const Agent = () => {
                     {usdcxBalance} USDCx
                   </span>
                 )}
-                <div className="hidden sm:flex items-center gap-2">
-                  <span className="text-[10px] text-muted-foreground">Auto Execute</span>
-                  <button
-                    onClick={() => setAutoExecute((v) => !v)}
-                    className={cn(
-                      "w-8 h-[18px] rounded-full transition-colors relative",
-                      autoExecute ? "bg-primary" : "bg-secondary",
-                    )}
-                    aria-label="Toggle auto execute"
-                  >
-                    <span
-                      className={cn(
-                        "absolute top-[2px] h-[14px] w-[14px] rounded-full bg-foreground transition-transform",
-                        autoExecute ? "left-[16px]" : "left-[2px]",
-                      )}
-                    />
-                  </button>
-                </div>
                 <div className="flex items-center gap-1.5">
                   <Shield className="h-3 w-3 text-success" />
                   <span className="text-[10px] text-success">Agent uses public mode</span>
