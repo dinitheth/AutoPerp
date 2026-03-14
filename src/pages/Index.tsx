@@ -148,10 +148,10 @@ const Index = () => {
         <div className="container">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-6 md:gap-8">
             {[
-              { label: "Programs Deployed", value: "Live" },
+              { label: "Programs Deployed", value: "5" },
               { label: "Supported Markets", value: "3" },
-              { label: "Network", value: "Testnet" },
-              { label: "Liquidations Automated", value: "In Progress" },
+              { label: "Network", value: "Aleo Testnet" },
+              { label: "Liquidations Automated", value: "Live" },
             ].map((stat, i) => (
               <motion.div
                 key={stat.label}
