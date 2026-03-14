@@ -160,7 +160,7 @@ function classifyUserIntent(input: string): {
   market?: "BTC-USD" | "ETH-USD" | "ALEO-USD";
 } {
   const text = input.toLowerCase();
-  const hasOpenVerb = /(open|place|execute|submit|enter|buy|sell|go\s+long|go\s+short|\blong\b|\bshort\b)/.test(text);
+  const hasOpenVerb = /(open|place|execute|submit|enter|buy|sell|\btrade\b|set\s*up|setup|go\s+long|go\s+short|\blong\b|\bshort\b)/.test(text);
   const hasTradeParam = /(x\b|leverage|collateral|usdcx|stop\s*loss|take\s*profit|tp\b|sl\b|market)/.test(text);
   const isBalanceIntent = /(balance|available|wallet|how much can i trade|max(?:imum)?\s+(?:position|trade)|buying power)/.test(text);
   const isSltpGuidanceIntent =
