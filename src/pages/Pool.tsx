@@ -12,6 +12,7 @@ import {
   LEGACY_SETTLEMENT_MESSAGE,
   REAL_SETTLEMENT_AVAILABLE,
   STRICT_PRIVATE_CORE_ACTIVE,
+  PUBLIC_CORE_PROGRAM,
 } from "@/lib/protocol";
 import { findPoolStateRecord } from "@/lib/privateCoreRecords";
 import { isProgramNotAllowedError, requestProgramRecords } from "@/lib/walletRecords";
@@ -106,6 +107,7 @@ const Pool = () => {
   const [poolShares, setPoolShares] = useState<Record<string, number>>({});
   const [userLpByPool, setUserLpByPool] = useState<Record<string, number>>({});
   const [loadingPoolBalances, setLoadingPoolBalances] = useState(false);
+  const [claimingFees, setClaimingFees] = useState(false);
 
   const { connected, address, requestRecords, connect, disconnect } = useWallet();
   const { usdcxBalance, refetch: refetchBalance } = useUsdcxBalance();
@@ -379,6 +381,117 @@ const Pool = () => {
     }
   };
 
+  const handleClaimFees = async () => {
+    if (!REAL_SETTLEMENT_AVAILABLE) {
+      toast.error(LEGACY_SETTLEMENT_MESSAGE);
+      return;
+    }
+
+    if (!connected || !address) {
+      toast.error("Connect your Shield wallet first.");
+      return;
+    }
+
+    const pool = pools[selectedPool];
+    setClaimingFees(true);
+    try {
+      const records = await requestProgramRecords(
+        requestRecords,
+        PUBLIC_CORE_PROGRAM,
+        true,
+        disconnect,
+        connect,
+      );
+
+      const owner = (address ?? "").trim().toLowerCase();
+      const lpInputs: Array<{ input: string; shares: number }> = [];
+
+      for (const record of records) {
+        const plain = extractRecordPlaintext(record);
+        if (!plain) continue;
+        if (!/pool_id\s*:/i.test(plain) || !/shares\s*:/i.test(plain) || !/deposit_amount\s*:/i.test(plain)) {
+          continue;
+        }
+
+        const ownerMatch = plain.match(/owner\s*:\s*([^,\n}]+)/i);
+        const recOwner = ownerMatch
+          ? String(ownerMatch[1]).replace(/\.(private|public)$/i, "").trim().toLowerCase()
+          : "";
+        if (!recOwner || recOwner !== owner) continue;
+
+        const poolMatch = plain.match(/pool_id\s*:\s*([^,\n}]+)/i);
+        if (!poolMatch) continue;
+        const poolId = String(poolMatch[1]).replace(/\.(private|public)$/i, "").trim();
+        if (poolId !== pool.poolId) continue;
+
+        const sharesMatch = plain.match(/shares\s*:\s*([^,\n}]+)/i);
+        const sharesRaw = sharesMatch
+          ? String(sharesMatch[1]).replace(/\.(private|public)$/i, "").replace(/u\d+$/i, "").replace(/_/g, "").trim()
+          : "0";
+        const shares = Number(sharesRaw);
+        if (!Number.isFinite(shares) || shares <= 0) continue;
+
+        lpInputs.push({ input: plain, shares });
+      }
+
+      if (lpInputs.length === 0) {
+        toast.error("No LP token record found for this pool. Deposit first, then retry claim.");
+        return;
+      }
+
+      // Use the largest LP token record for claim to maximize payout in one call.
+      lpInputs.sort((a, b) => b.shares - a.shares);
+      const lpInput = lpInputs[0].input;
+
+      const [sharesRes, feesRes] = await Promise.all([
+        fetch(`${API_BASE}/program/${PUBLIC_CORE_PROGRAM}/mapping/pool_shares/${pool.poolId}`),
+        fetch(`${API_BASE}/program/${PUBLIC_CORE_PROGRAM}/mapping/pool_fees/${pool.poolId}`),
+      ]);
+
+      if (!sharesRes.ok || !feesRes.ok) {
+        toast.error("Could not load latest pool share/fee state for claim.");
+        return;
+      }
+
+      const totalSharesRaw = parseMappingBalance(await sharesRes.text());
+      const totalFeesRaw = parseMappingBalance(await feesRes.text());
+
+      if (totalSharesRaw <= 0) {
+        toast.error("Pool has zero shares. Claim unavailable.");
+        return;
+      }
+
+      if (totalFeesRaw <= 0) {
+        toast.info("No claimable fees available right now.");
+        return;
+      }
+
+      const result = await execute(
+        PUBLIC_CORE_PROGRAM,
+        "claim_fees",
+        [lpInput, `${totalSharesRaw}u64`, `${totalFeesRaw}u64`],
+        1_000_000,
+      );
+
+      if (result) {
+        toast.success("Fees claimed to wallet successfully.");
+        setTimeout(() => refreshPoolBalances(), 2000);
+        setTimeout(() => refreshPoolBalances(), 7000);
+        setTimeout(() => refetchBalance(), 2000);
+        setTimeout(() => refetchBalance(), 7000);
+      }
+    } catch (error) {
+      if (isProgramNotAllowedError(error)) {
+        toast.error("Shield blocked LP record access. Reconnect wallet and approve program permissions.");
+      } else {
+        const message = error instanceof Error ? error.message : "Fee claim failed.";
+        toast.error(message);
+      }
+    } finally {
+      setClaimingFees(false);
+    }
+  };
+
   return (
     <WalletGate pageName="Liquidity Pools">
       <div className="min-h-screen bg-background">
@@ -553,6 +666,10 @@ const Pool = () => {
                     <span className="text-muted-foreground">Privacy</span>
                     <span className="text-warning text-[10px]">Private LP records + public transfers</span>
                   </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Lock Period</span>
+                    <span className="text-warning text-[10px]">Deposited liquidity is locked for 2 years</span>
+                  </div>
                 </div>
 
                 {(() => {
@@ -589,6 +706,23 @@ const Pool = () => {
                     </button>
                   );
                 })()}
+
+                <button
+                  onClick={handleClaimFees}
+                  disabled={txLoading || claimingFees || !connected}
+                  className="mt-3 w-full h-10 text-sm font-medium rounded-xl border border-primary/40 text-primary hover:bg-primary/10 transition-colors disabled:opacity-50"
+                >
+                  {claimingFees
+                    ? "Claiming Public Fees..."
+                    : selectedPoolClaimableFees > 0
+                      ? `Claim Public Fees to Wallet (${selectedPoolClaimableFees.toFixed(2)} USDCx est)`
+                      : "Claim Public Fees to Wallet"}
+                </button>
+                {STRICT_PRIVATE_CORE_ACTIVE && (
+                  <p className="mt-2 text-[10px] text-muted-foreground">
+                    Public-only claim: this action checks LP records on public core and pays directly to wallet when available.
+                  </p>
+                )}
               </div>
             </motion.div>
           </div>
