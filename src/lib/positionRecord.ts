@@ -2,6 +2,7 @@ export type PositionDirection = "long" | "short";
 
 export interface ParsedPositionRecord {
   id: string;
+  positionId: string;
   marketId: string;
   market: string;
   direction: PositionDirection;
@@ -12,6 +13,50 @@ export interface ParsedPositionRecord {
   stopLoss: number;
   takeProfit: number;
   rawData?: unknown;
+}
+
+function hashText(input: string): string {
+  let hash = 2166136261;
+  for (let i = 0; i < input.length; i += 1) {
+    hash ^= input.charCodeAt(i);
+    hash += (hash << 1) + (hash << 4) + (hash << 7) + (hash << 8) + (hash << 24);
+  }
+  return Math.abs(hash >>> 0).toString(16);
+}
+
+function extractRecordInstanceId(record: unknown, plain: string | null, positionId: string): string {
+  if (record && typeof record === "object") {
+    const source = record as Record<string, unknown>;
+    const nested = [source, source.metadata, source.meta, source.record]
+      .filter((x): x is Record<string, unknown> => Boolean(x && typeof x === "object"));
+
+    for (const obj of nested) {
+      const candidates = [
+        obj.id,
+        obj.recordId,
+        obj.serialNumber,
+        obj.serial_number,
+        obj.commitment,
+        obj.recordName,
+        obj.nonce,
+        obj._nonce,
+      ];
+      for (const candidate of candidates) {
+        const value = extractFieldValue(candidate).trim();
+        if (!value) continue;
+        return `${positionId}:${value}`;
+      }
+    }
+  }
+
+  if (plain) {
+    const nonce = fieldFromPlaintext(plain, "_nonce") || fieldFromPlaintext(plain, "nonce");
+    const cleanNonce = extractFieldValue(nonce).trim();
+    if (cleanNonce) return `${positionId}:${cleanNonce}`;
+    return `${positionId}:h${hashText(plain)}`;
+  }
+
+  return `${positionId}:fallback`;
 }
 
 function extractFieldValue(raw: unknown): string {
@@ -68,6 +113,32 @@ function field(raw: Record<string, unknown>, name: string): unknown {
     if (k.toLowerCase().replace(/\.(private|public)$/, "") === lname) return raw[k];
   }
   return undefined;
+}
+
+export function isRecordSpent(rawRecord: unknown): boolean {
+  if (!rawRecord || typeof rawRecord !== "object") return false;
+  const source = rawRecord as Record<string, unknown>;
+
+  const directBools = [source.spent, source.isSpent, source.consumed, source.isConsumed];
+  for (const candidate of directBools) {
+    if (typeof candidate === "boolean") return candidate;
+  }
+
+  const directStatus = [source.status, source.state];
+  for (const candidate of directStatus) {
+    if (typeof candidate === "string" && /spent|consumed/i.test(candidate)) return true;
+  }
+
+  const nestedCandidates = [source.metadata, source.meta, source.record];
+  for (const candidate of nestedCandidates) {
+    if (!candidate || typeof candidate !== "object") continue;
+    const nested = candidate as Record<string, unknown>;
+    if (typeof nested.spent === "boolean") return nested.spent;
+    if (typeof nested.isSpent === "boolean") return nested.isSpent;
+    if (typeof nested.status === "string" && /spent|consumed/i.test(nested.status)) return true;
+  }
+
+  return false;
 }
 
 export function getPositionRecordOwner(rawRecord: unknown): string | null {
@@ -128,9 +199,11 @@ export function parseAleoPositionRecord(
       const stopLoss = safeInt(fieldFromPlaintext(plain, "stop_loss")) / 100_000_000;
       const takeProfit = safeInt(fieldFromPlaintext(plain, "take_profit")) / 100_000_000;
       const posId = cleanNumeric(fieldFromPlaintext(plain, "position_id")) || String(Math.random());
+      const instanceId = extractRecordInstanceId(record, plain, posId);
 
       return {
-        id: posId,
+        id: instanceId,
+        positionId: posId,
         marketId,
         market: marketNames[marketId] ?? `Market ${marketId}`,
         direction,
@@ -140,7 +213,7 @@ export function parseAleoPositionRecord(
         size,
         stopLoss,
         takeProfit,
-        rawData: plain,
+        rawData: record,
       };
     }
 
@@ -160,10 +233,13 @@ export function parseAleoPositionRecord(
     const size = collateral * leverage;
     const stopLoss = safeInt(field(raw, "stop_loss")) / 100_000_000;
     const takeProfit = safeInt(field(raw, "take_profit")) / 100_000_000;
-    const posId = extractFieldValue(field(raw, "position_id") ?? field(raw, "id") ?? source.id ?? "") || String(Math.random());
+    const posIdRaw = extractFieldValue(field(raw, "position_id") ?? field(raw, "id") ?? source.id ?? "") || String(Math.random());
+    const posId = cleanNumeric(posIdRaw) || posIdRaw;
+    const instanceId = extractRecordInstanceId(record, null, posId);
 
     return {
-      id: cleanNumeric(posId) || posId,
+      id: instanceId,
+      positionId: posId,
       marketId,
       market: marketNames[marketId] ?? `Market ${marketId}`,
       direction,

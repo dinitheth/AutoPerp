@@ -1,5 +1,4 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { supabase } from "@/integrations/supabase/client";
 
 export interface MarketPrice {
   symbol: string;
@@ -9,6 +8,65 @@ export interface MarketPrice {
 }
 
 const MARKET_SYMBOLS = ["BTC-USD", "ETH-USD", "ALEO-USD", "SOL-USD"] as const;
+const COINGECKO_IDS: Record<typeof MARKET_SYMBOLS[number], string> = {
+  "BTC-USD": "bitcoin",
+  "ETH-USD": "ethereum",
+  "ALEO-USD": "aleo",
+  "SOL-USD": "solana",
+};
+const BINANCE_SYMBOLS: Partial<Record<typeof MARKET_SYMBOLS[number], string>> = {
+  "BTC-USD": "BTCUSDT",
+  "ETH-USD": "ETHUSDT",
+  "ALEO-USD": "ALEOUSDT",
+  "SOL-USD": "SOLUSDT",
+};
+const PRICE_CACHE_KEY = "autoperp:prices:cache:v1";
+const WS_SYMBOL_TO_MARKET: Record<string, string> = {
+  BTCUSDT: "BTC-USD",
+  ETHUSDT: "ETH-USD",
+  SOLUSDT: "SOL-USD",
+};
+
+function defaultPrices(): MarketPrice[] {
+  return [
+    { symbol: "BTC-USD", price: 0, change24h: 0, positive: true },
+    { symbol: "ETH-USD", price: 0, change24h: 0, positive: true },
+    { symbol: "ALEO-USD", price: 0, change24h: 0, positive: false },
+    { symbol: "SOL-USD", price: 0, change24h: 0, positive: true },
+  ];
+}
+
+function loadCachedPrices(): MarketPrice[] {
+  try {
+    const raw = localStorage.getItem(PRICE_CACHE_KEY);
+    if (!raw) return defaultPrices();
+    const parsed = JSON.parse(raw) as MarketPrice[];
+    if (!Array.isArray(parsed)) return defaultPrices();
+    const normalized = MARKET_SYMBOLS.map((symbol) => {
+      const row = parsed.find((p) => p.symbol === symbol);
+      if (!row || !Number.isFinite(row.price)) {
+        return defaultPrices().find((p) => p.symbol === symbol)!;
+      }
+      return {
+        symbol,
+        price: Number(row.price) || 0,
+        change24h: Number(row.change24h) || 0,
+        positive: Number(row.change24h) >= 0,
+      };
+    });
+    return normalized;
+  } catch {
+    return defaultPrices();
+  }
+}
+
+function persistPrices(next: MarketPrice[]) {
+  try {
+    localStorage.setItem(PRICE_CACHE_KEY, JSON.stringify(next));
+  } catch {
+    // ignore storage errors
+  }
+}
 
 const formatPrice = (price: number): string => {
   if (price >= 1000) return price.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -17,48 +75,87 @@ const formatPrice = (price: number): string => {
 };
 
 const usePrices = () => {
-  const [prices, setPrices] = useState<MarketPrice[]>([
-    { symbol: "BTC-USD", price: 0, change24h: 0, positive: true },
-    { symbol: "ETH-USD", price: 0, change24h: 0, positive: true },
-    { symbol: "ALEO-USD", price: 0, change24h: 0, positive: false },
-    { symbol: "SOL-USD", price: 0, change24h: 0, positive: true },
-  ]);
-  const [loading, setLoading] = useState(true);
+  const [prices, setPrices] = useState<MarketPrice[]>(() => loadCachedPrices());
+  const [loading, setLoading] = useState(() => !loadCachedPrices().some((p) => p.price > 0));
   const errorCountRef = useRef(0);
 
   const fetchPrices = useCallback(async () => {
     try {
-      const { data, error } = await supabase.functions.invoke("market-prices", {
-        body: {},
-      });
+      const nextBySymbol: Record<string, { price: number; change24h: number }> = {};
 
-      if (error) {
-        throw new Error(error.message || "Failed to fetch prices from backend");
+      // 1) Fast path: Binance ticker (near real-time for listed pairs).
+      const binancePairs = MARKET_SYMBOLS
+        .map((symbol) => BINANCE_SYMBOLS[symbol])
+        .filter((value): value is string => Boolean(value));
+
+      if (binancePairs.length > 0) {
+        const query = encodeURIComponent(JSON.stringify(binancePairs));
+        const bRes = await fetch(`https://data-api.binance.vision/api/v3/ticker/24hr?symbols=${query}`);
+        if (bRes.ok) {
+          const bRows = (await bRes.json()) as Array<{ symbol?: string; lastPrice?: string; priceChangePercent?: string }>;
+          const byPair: Record<string, { price: number; change24h: number }> = {};
+          for (const row of bRows) {
+            const sym = String(row.symbol ?? "").toUpperCase();
+            const price = Number(row.lastPrice ?? 0);
+            const change24h = Number(row.priceChangePercent ?? 0);
+            if (!sym || !Number.isFinite(price) || price <= 0) continue;
+            byPair[sym] = { price, change24h: Number.isFinite(change24h) ? change24h : 0 };
+          }
+
+          for (const market of MARKET_SYMBOLS) {
+            const pair = BINANCE_SYMBOLS[market];
+            if (!pair) continue;
+            const data = byPair[pair];
+            if (!data) continue;
+            nextBySymbol[market] = data;
+          }
+        }
       }
 
-      const priceMap = data?.prices as Record<string, { price?: number; change24h?: number }> | undefined;
-      if (!priceMap) {
-        throw new Error("Invalid price payload");
+      // 2) Fallback/fill: CoinGecko for anything missing from Binance.
+      const missing = MARKET_SYMBOLS.filter((symbol) => !nextBySymbol[symbol]);
+      if (missing.length > 0) {
+        const ids = missing.map((symbol) => COINGECKO_IDS[symbol]).join(",");
+        const cgRes = await fetch(
+          `https://api.coingecko.com/api/v3/simple/price?ids=${ids}&vs_currencies=usd&include_24hr_change=true`,
+        );
+        if (cgRes.ok) {
+          const cgPayload = await cgRes.json() as Record<string, { usd?: number; usd_24h_change?: number }>;
+          for (const symbol of missing) {
+            const row = cgPayload[COINGECKO_IDS[symbol]] ?? {};
+            const price = Number(row.usd ?? 0);
+            const change24h = Number(row.usd_24h_change ?? 0);
+            if (!Number.isFinite(price) || price <= 0) continue;
+            nextBySymbol[symbol] = {
+              price,
+              change24h: Number.isFinite(change24h) ? change24h : 0,
+            };
+          }
+        }
       }
 
       const updated: MarketPrice[] = MARKET_SYMBOLS.map((symbol) => {
-        const row = priceMap[symbol] ?? {};
-        const price = Number(row.price ?? 0);
-        const change = Number(row.change24h ?? 0);
-        return {
-          symbol,
-          price,
-          change24h: change,
-          positive: change >= 0,
-        };
+        const fresh = nextBySymbol[symbol];
+        if (fresh) {
+          return {
+            symbol,
+            price: fresh.price,
+            change24h: fresh.change24h,
+            positive: fresh.change24h >= 0,
+          };
+        }
+        return null as unknown as MarketPrice;
       });
 
-      const hasAnyPrice = updated.some((p) => p.price > 0);
-      if (!hasAnyPrice) {
-        throw new Error("No usable prices returned");
-      }
+      setPrices((prev) => {
+        const merged = updated.map((row, idx) => {
+          if (row && Number.isFinite(row.price) && row.price > 0) return row;
+          return prev[idx] ?? defaultPrices()[idx];
+        });
 
-      setPrices(updated);
+        persistPrices(merged);
+        return merged;
+      });
       setLoading(false);
       errorCountRef.current = 0;
     } catch (err) {
@@ -66,13 +163,61 @@ const usePrices = () => {
         console.error("Price fetch error:", err);
       }
       errorCountRef.current++;
+      // Keep last known good prices if fetch fails.
       setLoading(false);
     }
   }, []);
 
   useEffect(() => {
+    const streams = ["btcusdt@miniTicker", "ethusdt@miniTicker", "solusdt@miniTicker"].join("/");
+    const ws = new WebSocket(`wss://stream.binance.com:9443/stream?streams=${streams}`);
+
+    ws.onmessage = (event) => {
+      try {
+        const packet = JSON.parse(event.data) as {
+          data?: { s?: string; c?: string; P?: string };
+        };
+        const sym = String(packet?.data?.s ?? "").toUpperCase();
+        const market = WS_SYMBOL_TO_MARKET[sym];
+        if (!market) return;
+
+        const price = Number(packet?.data?.c ?? 0);
+        const change24h = Number(packet?.data?.P ?? 0);
+        if (!Number.isFinite(price) || price <= 0) return;
+
+        setPrices((prev) => {
+          const next = prev.map((row) =>
+            row.symbol === market
+              ? {
+                  ...row,
+                  price,
+                  change24h: Number.isFinite(change24h) ? change24h : row.change24h,
+                  positive: Number.isFinite(change24h) ? change24h >= 0 : row.positive,
+                }
+              : row,
+          );
+          persistPrices(next);
+          return next;
+        });
+
+        setLoading(false);
+      } catch {
+        // ignore malformed packets
+      }
+    };
+
+    return () => {
+      try {
+        ws.close();
+      } catch {
+        // ignore
+      }
+    };
+  }, []);
+
+  useEffect(() => {
     fetchPrices();
-    const interval = setInterval(fetchPrices, 20000); // every 20s
+    const interval = setInterval(fetchPrices, 2000); // every 2s
     return () => clearInterval(interval);
   }, [fetchPrices]);
 

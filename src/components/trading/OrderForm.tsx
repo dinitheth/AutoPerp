@@ -54,6 +54,24 @@ const OrderForm = ({ market, coreProgram, isPrivateMode }: OrderFormProps) => {
     return rest.length ? `${whole}.${frac}` : whole;
   };
 
+  const sanitizeDecimalInput = (raw: string, maxDecimals = 8): string => {
+    const cleaned = raw.replace(/,/g, "").replace(/[^\d.]/g, "");
+    if (!cleaned) return "";
+    const [whole, ...rest] = cleaned.split(".");
+    const frac = rest.join("").slice(0, maxDecimals);
+    return rest.length ? `${whole}.${frac}` : whole;
+  };
+
+  const sanitizePercentInput = (raw: string): string => {
+    const normalized = sanitizeDecimalInput(raw, 2);
+    if (!normalized) return "";
+    const n = Number(normalized);
+    if (!Number.isFinite(n)) return "";
+    if (n < 0) return "0";
+    if (n > 100) return "100";
+    return normalized;
+  };
+
   const parseNum = (s: string): number | null => {
     const cleaned = s.replace(/,/g, "").trim();
     if (!cleaned) return null;
@@ -115,6 +133,30 @@ const OrderForm = ({ market, coreProgram, isPrivateMode }: OrderFormProps) => {
   })();
 
   const entryPrice = basePrice;
+
+  const tpPriceRaw = parseNum(tpPriceInput);
+  const slPriceRaw = parseNum(slPriceInput);
+  const tpPctRaw = parseNum(tpPctInput);
+  const slPctRaw = parseNum(slPctInput);
+
+  const tpPriceInvalid = tpPriceInput.trim() !== "" && (!tpPriceRaw || tpPriceRaw <= 0);
+  const slPriceInvalid = slPriceInput.trim() !== "" && (!slPriceRaw || slPriceRaw <= 0);
+  const tpPctInvalid = tpPctInput.trim() !== "" && (!tpPctRaw || tpPctRaw <= 0 || tpPctRaw > 100);
+  const slPctInvalid = slPctInput.trim() !== "" && (!slPctRaw || slPctRaw <= 0 || slPctRaw > 100);
+
+  const tpDirectionalInvalid =
+    entryPrice > 0 && tpPrice !== null
+      ? direction === "long"
+        ? tpPrice <= entryPrice
+        : tpPrice >= entryPrice
+      : false;
+
+  const slDirectionalInvalid =
+    entryPrice > 0 && slPrice !== null
+      ? direction === "long"
+        ? slPrice >= entryPrice
+        : slPrice <= entryPrice
+      : false;
 
   useEffect(() => {
     if (orderType === "limit" && !limitPriceInput && currentPrice > 0) {
@@ -674,15 +716,21 @@ const OrderForm = ({ market, coreProgram, isPrivateMode }: OrderFormProps) => {
               <input
                 type="text"
                 value={tpPriceInput}
+                inputMode="decimal"
+                autoComplete="off"
+                spellCheck={false}
                 onChange={(e) => {
-                  const v = e.target.value;
+                  const v = sanitizeDecimalInput(e.target.value, 8);
                   setTpPriceInput(v);
                   const px = parseNum(v);
                   const pct = px ? priceToPct(px, "tp") : null;
                   setTpPctInput(pct ? formatPct(pct) : "");
                 }}
                 placeholder="Price"
-                className="w-full h-8 px-2.5 text-xs font-mono bg-secondary border border-border rounded-md text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                className={cn(
+                  "w-full h-8 px-2.5 text-xs font-mono bg-secondary border rounded-md text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary",
+                  tpPriceInvalid || tpDirectionalInvalid ? "border-destructive" : "border-border",
+                )}
               />
             </div>
             <div>
@@ -691,15 +739,21 @@ const OrderForm = ({ market, coreProgram, isPrivateMode }: OrderFormProps) => {
                 <input
                   type="text"
                   value={tpPctInput}
+                  inputMode="decimal"
+                  autoComplete="off"
+                  spellCheck={false}
                   onChange={(e) => {
-                    const v = e.target.value;
+                    const v = sanitizePercentInput(e.target.value);
                     setTpPctInput(v);
                     const pct = parseNum(v);
                     const px = pct ? pctToPrice(pct, "tp") : null;
                     setTpPriceInput(px ? formatPrice(px) : "");
                   }}
                   placeholder="%"
-                  className="w-full h-8 pr-8 pl-2.5 text-xs font-mono bg-secondary border border-border rounded-md text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                  className={cn(
+                    "w-full h-8 pr-8 pl-2.5 text-xs font-mono bg-secondary border rounded-md text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary",
+                    tpPctInvalid ? "border-destructive" : "border-border",
+                  )}
                 />
                 <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground">
                   %
@@ -722,6 +776,15 @@ const OrderForm = ({ market, coreProgram, isPrivateMode }: OrderFormProps) => {
               {tpPrice ? `$${formatPrice(tpPrice)}` : "--"}
             </span>
           </div>
+          {(tpPriceInvalid || tpPctInvalid || tpDirectionalInvalid) && (
+            <p className="mt-1 text-[10px] text-destructive">
+              {tpPriceInvalid || tpPctInvalid
+                ? "Take Profit must be a valid positive number (percent: 0-100)."
+                : direction === "long"
+                  ? "Take Profit must be greater than entry price for LONG."
+                  : "Take Profit must be lower than entry price for SHORT."}
+            </p>
+          )}
         </div>
         <div>
           <div className="grid grid-cols-2 gap-2">
@@ -730,15 +793,21 @@ const OrderForm = ({ market, coreProgram, isPrivateMode }: OrderFormProps) => {
               <input
                 type="text"
                 value={slPriceInput}
+                inputMode="decimal"
+                autoComplete="off"
+                spellCheck={false}
                 onChange={(e) => {
-                  const v = e.target.value;
+                  const v = sanitizeDecimalInput(e.target.value, 8);
                   setSlPriceInput(v);
                   const px = parseNum(v);
                   const pct = px ? priceToPct(px, "sl") : null;
                   setSlPctInput(pct ? formatPct(pct) : "");
                 }}
                 placeholder="Price"
-                className="w-full h-8 px-2.5 text-xs font-mono bg-secondary border border-border rounded-md text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                className={cn(
+                  "w-full h-8 px-2.5 text-xs font-mono bg-secondary border rounded-md text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary",
+                  slPriceInvalid || slDirectionalInvalid ? "border-destructive" : "border-border",
+                )}
               />
             </div>
             <div>
@@ -747,15 +816,21 @@ const OrderForm = ({ market, coreProgram, isPrivateMode }: OrderFormProps) => {
                 <input
                   type="text"
                   value={slPctInput}
+                  inputMode="decimal"
+                  autoComplete="off"
+                  spellCheck={false}
                   onChange={(e) => {
-                    const v = e.target.value;
+                    const v = sanitizePercentInput(e.target.value);
                     setSlPctInput(v);
                     const pct = parseNum(v);
                     const px = pct ? pctToPrice(pct, "sl") : null;
                     setSlPriceInput(px ? formatPrice(px) : "");
                   }}
                   placeholder="%"
-                  className="w-full h-8 pr-8 pl-2.5 text-xs font-mono bg-secondary border border-border rounded-md text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                  className={cn(
+                    "w-full h-8 pr-8 pl-2.5 text-xs font-mono bg-secondary border rounded-md text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary",
+                    slPctInvalid ? "border-destructive" : "border-border",
+                  )}
                 />
                 <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground">
                   %
@@ -778,6 +853,15 @@ const OrderForm = ({ market, coreProgram, isPrivateMode }: OrderFormProps) => {
               {slPrice ? `$${formatPrice(slPrice)}` : "--"}
             </span>
           </div>
+          {(slPriceInvalid || slPctInvalid || slDirectionalInvalid) && (
+            <p className="mt-1 text-[10px] text-destructive">
+              {slPriceInvalid || slPctInvalid
+                ? "Stop Loss must be a valid positive number (percent: 0-100)."
+                : direction === "long"
+                  ? "Stop Loss must be lower than entry price for LONG."
+                  : "Stop Loss must be greater than entry price for SHORT."}
+            </p>
+          )}
         </div>
       </div>
 
@@ -816,6 +900,12 @@ const OrderForm = ({ market, coreProgram, isPrivateMode }: OrderFormProps) => {
           !REAL_SETTLEMENT_AVAILABLE ||
           !size ||
           !amt ||
+          tpPriceInvalid ||
+          slPriceInvalid ||
+          tpPctInvalid ||
+          slPctInvalid ||
+          tpDirectionalInvalid ||
+          slDirectionalInvalid ||
           insufficient ||
           tooSmall ||
           !connected;
