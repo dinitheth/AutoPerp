@@ -253,55 +253,13 @@ const PositionsList = ({ coreProgram, isPrivateMode }: PositionsListProps) => {
       return;
     }
 
-    let result = null;
+    let executedClosePrice = currentPrice;
 
-    if (isPrivateMode) {
-      const poolId = MARKET_IDS[pos.market];
-      if (!poolId) {
-        toast.error("Unsupported market for private close.");
-        setClosingId(null);
-        return;
-      }
-
-      let latest: unknown[] = [];
-      try {
-        latest = await requestProgramRecords(
-          requestRecords,
-          coreProgram,
-          true,
-          disconnect,
-          connect,
-        );
-      } catch {
-        latest = [];
-      }
-
-      const owner = (address ?? "").trim();
-      const vault = findVaultRecord(latest, owner);
-      const pool = findPoolStateRecord(latest, owner, poolId);
-
-      if (!vault || !pool) {
-        toast.error("Could not load private vault/pool records required to close this position.");
-        setClosingId(null);
-        return;
-      }
-
-      result = await execute(coreProgram, "close_position", [
-        recordInput,
-        vault.input,
-        pool.input,
-        toPrice(currentPrice),
-      ], 2_000_000);
-    } else {
-      result = await execute(coreProgram, "close_position", [
-        recordInput,
-        toPrice(currentPrice),
-      ], 2_000_000);
-    }
-
-    if (!result) {
-      // Retry once with a higher fee to reduce occasional wallet/prover rejection.
+    const runClose = async (price: number, fee: number) => {
       if (isPrivateMode) {
+        const poolId = MARKET_IDS[pos.market];
+        if (!poolId) return null;
+
         let latest: unknown[] = [];
         try {
           latest = await requestProgramRecords(
@@ -314,23 +272,49 @@ const PositionsList = ({ coreProgram, isPrivateMode }: PositionsListProps) => {
         } catch {
           latest = [];
         }
+
         const owner = (address ?? "").trim();
-        const poolId = MARKET_IDS[pos.market];
         const vault = findVaultRecord(latest, owner);
-        const pool = poolId ? findPoolStateRecord(latest, owner, poolId) : null;
-        if (vault && pool) {
-          result = await execute(coreProgram, "close_position", [
-            recordInput,
-            vault.input,
-            pool.input,
-            toPrice(currentPrice),
-          ], 5_000_000);
+        const pool = findPoolStateRecord(latest, owner, poolId);
+
+        if (!vault || !pool) {
+          toast.error("Could not load private vault/pool records required to close this position.");
+          return null;
         }
-      } else {
-        result = await execute(coreProgram, "close_position", [
+
+        return execute(coreProgram, "close_position", [
           recordInput,
-          toPrice(currentPrice),
-        ], 5_000_000);
+          vault.input,
+          pool.input,
+          toPrice(price),
+        ], fee);
+      }
+
+      return execute(coreProgram, "close_position", [
+        recordInput,
+        toPrice(price),
+      ], fee);
+    };
+
+    let result = await runClose(currentPrice, 2_000_000);
+
+    if (!result) {
+      // Retry once with a higher fee to reduce occasional wallet/prover rejection.
+      result = await runClose(currentPrice, 5_000_000);
+    }
+
+    if (!result) {
+      const detail = (getLastError() ?? "").trim().toLowerCase();
+      const isSubtractUnderflow = detail.includes("integer subtraction failed");
+      const canFallbackAtEntry = pos.entryPrice > 0 && Math.abs(pos.entryPrice - currentPrice) > 0.0000001;
+
+      if (isSubtractUnderflow && canFallbackAtEntry) {
+        toast.info("Close fallback activated: retrying with entry price due on-chain subtraction bug.");
+        result = await runClose(pos.entryPrice, 5_000_000);
+        if (result) {
+          executedClosePrice = pos.entryPrice;
+          toast.success("Position closed using safety fallback price. PnL may differ from live mark for this close.");
+        }
       }
     }
 
@@ -345,8 +329,8 @@ const PositionsList = ({ coreProgram, isPrivateMode }: PositionsListProps) => {
       const notional = pos.size;
       const pnl =
         pos.direction === "long"
-          ? notional * ((currentPrice - pos.entryPrice) / pos.entryPrice)
-          : notional * ((pos.entryPrice - currentPrice) / pos.entryPrice);
+          ? notional * ((executedClosePrice - pos.entryPrice) / pos.entryPrice)
+          : notional * ((pos.entryPrice - executedClosePrice) / pos.entryPrice);
       addTradeEvent({
         id: newId("trade"),
         type: "CLOSE",
@@ -355,7 +339,7 @@ const PositionsList = ({ coreProgram, isPrivateMode }: PositionsListProps) => {
         collateralUsdcx: pos.collateral,
         leverage: pos.leverage,
         entryPrice: pos.entryPrice,
-        exitPrice: currentPrice,
+        exitPrice: executedClosePrice,
         pnlUsd: pnl,
         txId: result.transactionId,
         ts: Date.now(),

@@ -153,13 +153,20 @@ function buildWelcomeMessage(walletConnected: boolean, usdcxBalance: string | nu
   return `Connected to AutoPerp Agent. Your USDCx balance is ${balance}. I can help set up and submit on-chain trades, configure SL/TP, and track real-time market prices and balances. What would you like to do?`;
 }
 
-function detectTradeIntentFromInput(input: string): {
-  isTradeIntent: boolean;
+function classifyUserIntent(input: string): {
+  isOpenTradeIntent: boolean;
+  isBalanceIntent: boolean;
+  isSltpGuidanceIntent: boolean;
   market?: "BTC-USD" | "ETH-USD" | "ALEO-USD";
 } {
   const text = input.toLowerCase();
-  const hasTradeVerb = /(open|trade|buy|sell|long|short|position)/.test(text);
-  const hasTradeParam = /(x\b|leverage|collateral|usdcx|stop\s*loss|take\s*profit|tp\b|sl\b)/.test(text);
+  const hasOpenVerb = /(open|place|execute|submit|enter|buy|sell|go\s+long|go\s+short|\blong\b|\bshort\b)/.test(text);
+  const hasTradeParam = /(x\b|leverage|collateral|usdcx|stop\s*loss|take\s*profit|tp\b|sl\b|market)/.test(text);
+  const isBalanceIntent = /(balance|available|wallet|how much can i trade|max(?:imum)?\s+(?:position|trade)|buying power)/.test(text);
+  const isSltpGuidanceIntent =
+    /(stop\s*[- ]?loss|take\s*[- ]?profit|sl\/?tp|\bsl\b|\btp\b)/.test(text) &&
+    /(help|suggest|recommend|advice|set|what should)/.test(text) &&
+    !hasOpenVerb;
   const btc = /(btc\s*[-/]?\s*usd|btc)/.test(text);
   const eth = /(eth\s*[-/]?\s*usd|eth)/.test(text);
   const aleo = /(aleo\s*[-/]?\s*usd|aleo)/.test(text);
@@ -170,7 +177,9 @@ function detectTradeIntentFromInput(input: string): {
   else if (aleo) market = "ALEO-USD";
 
   return {
-    isTradeIntent: hasTradeVerb && (hasTradeParam || Boolean(market)),
+    isOpenTradeIntent: hasOpenVerb && !isBalanceIntent && !isSltpGuidanceIntent && (hasTradeParam || Boolean(market)),
+    isBalanceIntent,
+    isSltpGuidanceIntent,
     market,
   };
 }
@@ -200,7 +209,7 @@ export function useAgent(ctx: AgentContext) {
 
   const sendMessage = useCallback(
     async (input: string) => {
-      const typedTradeIntent = detectTradeIntentFromInput(input);
+      const userIntent = classifyUserIntent(input);
 
       const userMsg: AgentMessage = {
         id: Date.now().toString(),
@@ -221,7 +230,7 @@ export function useAgent(ctx: AgentContext) {
       let action: AgentMessage["action"] | undefined;
       const tradeParams = extractTradeParams(response);
       if (
-        !typedTradeIntent.isTradeIntent &&
+        userIntent.isOpenTradeIntent &&
         (
           tradeParams ||
           response.includes("Shall I execute") ||
@@ -246,9 +255,9 @@ export function useAgent(ctx: AgentContext) {
       let preselectedMarket: string | undefined;
       let cleanContent = response;
 
-      if (typedTradeIntent.isTradeIntent) {
+      if (userIntent.isOpenTradeIntent) {
         showTradeForm = true;
-        preselectedMarket = typedTradeIntent.market;
+        preselectedMarket = userIntent.market;
         cleanContent = preselectedMarket
           ? `Set up your ${preselectedMarket} position below.`
           : "Set up your position below.";
@@ -256,17 +265,23 @@ export function useAgent(ctx: AgentContext) {
       }
 
       if (response.includes("[TRADE_SETUP]")) {
-        showTradeForm = true;
-        cleanContent = response.replace(/\[TRADE_SETUP\]/g, "").trim();
-        const marketTag = response.match(/\[MARKET:(BTC-USD|ETH-USD|ALEO-USD)\]/);
-        if (marketTag) {
-          preselectedMarket = marketTag[1];
-          cleanContent = cleanContent.replace(/\[MARKET:[A-Z-]+\]/g, "").trim();
+        if (userIntent.isOpenTradeIntent) {
+          showTradeForm = true;
+          cleanContent = response.replace(/\[TRADE_SETUP\]/g, "").trim();
+          const marketTag = response.match(/\[MARKET:(BTC-USD|ETH-USD|ALEO-USD)\]/);
+          if (marketTag) {
+            preselectedMarket = marketTag[1];
+            cleanContent = cleanContent.replace(/\[MARKET:[A-Z-]+\]/g, "").trim();
+          }
+          cleanContent = preselectedMarket
+            ? `Set up your ${preselectedMarket} position below.`
+            : "Set up your position below.";
+        } else {
+          cleanContent = response
+            .replace(/\[TRADE_SETUP\]/g, "")
+            .replace(/\[MARKET:[A-Z-]+\]/g, "")
+            .trim();
         }
-        // Keep the agent message minimal when the form is present.
-        cleanContent = preselectedMarket
-          ? `Set up your ${preselectedMarket} position below.`
-          : "Set up your position below.";
       }
 
       const agentMsg: AgentMessage = {

@@ -30,7 +30,7 @@ const Footer = () => {
             <h4 className="text-xs font-medium text-foreground mb-3 uppercase tracking-wider">Resources</h4>
             <div className="flex flex-col gap-2">
               <Link to="/docs" className="text-xs text-muted-foreground hover:text-foreground transition-colors">Documentation</Link>
-              <a href="https://github.com" target="_blank" rel="noopener noreferrer" className="text-xs text-muted-foreground hover:text-foreground transition-colors">GitHub</a>
+              <a href="https://github.com/dinitheth/AutoPerp" target="_blank" rel="noopener noreferrer" className="text-xs text-muted-foreground hover:text-foreground transition-colors">GitHub</a>
             </div>
           </div>
 
