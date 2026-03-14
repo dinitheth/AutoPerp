@@ -9,14 +9,23 @@ import { useWallet } from "@provablehq/aleo-wallet-adaptor-react";
 import useUsdcxBalance from "@/hooks/useUsdcxBalance";
 import { API_BASE, useAleoTransaction, PROGRAMS, toUsdcx } from "@/hooks/useAleoTransaction";
 import {
+  type TradingMode,
+  getStoredTradingMode,
   LEGACY_SETTLEMENT_MESSAGE,
   REAL_SETTLEMENT_AVAILABLE,
-  STRICT_PRIVATE_CORE_ACTIVE,
   PUBLIC_CORE_PROGRAM,
+  resolveCoreProgram,
+  setStoredTradingMode,
 } from "@/lib/protocol";
 import { findPoolStateRecord } from "@/lib/privateCoreRecords";
 import { isProgramNotAllowedError, requestProgramRecords } from "@/lib/walletRecords";
 import { toast } from "sonner";
+
+type LpCandidate = {
+  input: string;
+  shares: number;
+  sourceProgram: string;
+};
 
 const pools = [
   { name: "BTC-USD Pool", poolId: "0u8", marketKey: "BTC-USD" },
@@ -101,6 +110,7 @@ function estimateClaimableFees(
 
 const Pool = () => {
   const [amount, setAmount] = useState("");
+  const [tradingMode, setTradingMode] = useState<TradingMode>(() => getStoredTradingMode());
   const [selectedPool, setSelectedPool] = useState(0);
   const [poolBalances, setPoolBalances] = useState<Record<string, number>>({});
   const [poolFees, setPoolFees] = useState<Record<string, number>>({});
@@ -112,12 +122,14 @@ const Pool = () => {
   const { connected, address, requestRecords, connect, disconnect } = useWallet();
   const { usdcxBalance, refetch: refetchBalance } = useUsdcxBalance();
   const { execute, loading: txLoading } = useAleoTransaction();
+  const isPrivateMode = tradingMode === "private";
+  const coreProgram = resolveCoreProgram(tradingMode);
 
   const refreshPoolBalances = useCallback(async () => {
     if (!REAL_SETTLEMENT_AVAILABLE) return;
     setLoadingPoolBalances(true);
     try {
-      if (STRICT_PRIVATE_CORE_ACTIVE) {
+      if (isPrivateMode) {
         if (!connected || !address) {
           setPoolBalances({});
           setPoolFees({});
@@ -127,7 +139,7 @@ const Pool = () => {
 
         const records = await requestProgramRecords(
           requestRecords,
-          PROGRAMS.CORE,
+          coreProgram,
           true,
           disconnect,
           connect,
@@ -172,7 +184,7 @@ const Pool = () => {
       const entries = await Promise.all(
         pools.map(async (p) => {
           try {
-            const res = await fetch(`${API_BASE}/program/${PROGRAMS.CORE}/mapping/pool_balance/${p.poolId}`);
+            const res = await fetch(`${API_BASE}/program/${coreProgram}/mapping/pool_balance/${p.poolId}`);
             if (!res.ok) return [p.poolId, 0] as const;
             const txt = await res.text();
             const micro = parseMappingBalance(txt);
@@ -185,7 +197,7 @@ const Pool = () => {
       const feeEntries = await Promise.all(
         pools.map(async (p) => {
           try {
-            const res = await fetch(`${API_BASE}/program/${PROGRAMS.CORE}/mapping/pool_fees/${p.poolId}`);
+            const res = await fetch(`${API_BASE}/program/${coreProgram}/mapping/pool_fees/${p.poolId}`);
             if (!res.ok) return [p.poolId, 0] as const;
             const txt = await res.text();
             const micro = parseMappingBalance(txt);
@@ -198,7 +210,7 @@ const Pool = () => {
       const shareEntries = await Promise.all(
         pools.map(async (p) => {
           try {
-            const res = await fetch(`${API_BASE}/program/${PROGRAMS.CORE}/mapping/pool_shares/${p.poolId}`);
+            const res = await fetch(`${API_BASE}/program/${coreProgram}/mapping/pool_shares/${p.poolId}`);
             if (!res.ok) return [p.poolId, 0] as const;
             const txt = await res.text();
             const n = parseMappingBalance(txt);
@@ -218,7 +230,7 @@ const Pool = () => {
     } finally {
       setLoadingPoolBalances(false);
     }
-  }, [connected, address, requestRecords, disconnect, connect]);
+  }, [connected, address, requestRecords, disconnect, connect, isPrivateMode, coreProgram]);
 
   const refreshUserLp = useCallback(async () => {
     if (!connected) {
@@ -228,7 +240,7 @@ const Pool = () => {
     try {
       const records = await requestProgramRecords(
         requestRecords,
-        PROGRAMS.CORE,
+        coreProgram,
         true,
         disconnect,
         connect,
@@ -265,7 +277,7 @@ const Pool = () => {
       }
       setUserLpByPool({});
     }
-  }, [connected, requestRecords, disconnect, connect]);
+  }, [connected, requestRecords, disconnect, connect, coreProgram]);
 
   useEffect(() => {
     refreshPoolBalances();
@@ -336,13 +348,13 @@ const Pool = () => {
     const pool = pools[selectedPool];
     let result = null;
 
-    if (STRICT_PRIVATE_CORE_ACTIVE) {
+    if (isPrivateMode) {
       const owner = address ?? "";
 
       const loadPool = async () => {
         const records = await requestProgramRecords(
           requestRecords,
-          PROGRAMS.CORE,
+          coreProgram,
           true,
           disconnect,
           connect,
@@ -352,7 +364,7 @@ const Pool = () => {
 
       let poolRecord = await loadPool();
       if (!poolRecord) {
-        const bootstrapped = await execute(PROGRAMS.CORE, "bootstrap_pool", [pool.poolId, "0u64"]);
+        const bootstrapped = await execute(coreProgram, "bootstrap_pool", [pool.poolId, "0u64"]);
         if (!bootstrapped) {
           toast.error("Could not initialize private pool state record.");
           return;
@@ -365,9 +377,9 @@ const Pool = () => {
         return;
       }
 
-      result = await execute(PROGRAMS.CORE, "deposit_liquidity", [poolRecord.input, toUsdcx(depositAmount)]);
+      result = await execute(coreProgram, "deposit_liquidity", [poolRecord.input, toUsdcx(depositAmount)]);
     } else {
-      result = await execute(PROGRAMS.CORE, "deposit_liquidity", [pool.poolId, toUsdcx(depositAmount)]);
+      result = await execute(coreProgram, "deposit_liquidity", [pool.poolId, toUsdcx(depositAmount)]);
     }
 
     if (result) {
@@ -387,6 +399,11 @@ const Pool = () => {
       return;
     }
 
+    if (isPrivateMode) {
+      toast.error("Claim to wallet is available only in Public mode. Switch mode and retry.");
+      return;
+    }
+
     if (!connected || !address) {
       toast.error("Connect your Shield wallet first.");
       return;
@@ -395,53 +412,66 @@ const Pool = () => {
     const pool = pools[selectedPool];
     setClaimingFees(true);
     try {
-      const records = await requestProgramRecords(
-        requestRecords,
-        PUBLIC_CORE_PROGRAM,
-        true,
-        disconnect,
-        connect,
-      );
-
       const owner = (address ?? "").trim().toLowerCase();
-      const lpInputs: Array<{ input: string; shares: number }> = [];
+      const lpPrograms = [PUBLIC_CORE_PROGRAM];
+      const lpInputs: LpCandidate[] = [];
 
-      for (const record of records) {
-        const plain = extractRecordPlaintext(record);
-        if (!plain) continue;
-        if (!/pool_id\s*:/i.test(plain) || !/shares\s*:/i.test(plain) || !/deposit_amount\s*:/i.test(plain)) {
-          continue;
+      for (const program of lpPrograms) {
+        let records: unknown[] = [];
+        try {
+          records = await requestProgramRecords(
+            requestRecords,
+            program,
+            true,
+            disconnect,
+            connect,
+          );
+        } catch {
+          records = [];
         }
 
-        const ownerMatch = plain.match(/owner\s*:\s*([^,\n}]+)/i);
-        const recOwner = ownerMatch
-          ? String(ownerMatch[1]).replace(/\.(private|public)$/i, "").trim().toLowerCase()
-          : "";
-        if (!recOwner || recOwner !== owner) continue;
+        for (const record of records) {
+          const plain = extractRecordPlaintext(record);
+          if (!plain) continue;
+          if (!/pool_id\s*:/i.test(plain) || !/shares\s*:/i.test(plain) || !/deposit_amount\s*:/i.test(plain)) {
+            continue;
+          }
 
-        const poolMatch = plain.match(/pool_id\s*:\s*([^,\n}]+)/i);
-        if (!poolMatch) continue;
-        const poolId = String(poolMatch[1]).replace(/\.(private|public)$/i, "").trim();
-        if (poolId !== pool.poolId) continue;
+          const ownerMatch = plain.match(/owner\s*:\s*([^,\n}]+)/i);
+          const recOwner = ownerMatch
+            ? String(ownerMatch[1]).replace(/\.(private|public)$/i, "").trim().toLowerCase()
+            : "";
+          if (!recOwner || recOwner !== owner) continue;
 
-        const sharesMatch = plain.match(/shares\s*:\s*([^,\n}]+)/i);
-        const sharesRaw = sharesMatch
-          ? String(sharesMatch[1]).replace(/\.(private|public)$/i, "").replace(/u\d+$/i, "").replace(/_/g, "").trim()
-          : "0";
-        const shares = Number(sharesRaw);
-        if (!Number.isFinite(shares) || shares <= 0) continue;
+          const poolMatch = plain.match(/pool_id\s*:\s*([^,\n}]+)/i);
+          if (!poolMatch) continue;
+          const poolId = String(poolMatch[1]).replace(/\.(private|public)$/i, "").trim();
+          if (poolId !== pool.poolId) continue;
 
-        lpInputs.push({ input: plain, shares });
+          const sharesMatch = plain.match(/shares\s*:\s*([^,\n}]+)/i);
+          const sharesRaw = sharesMatch
+            ? String(sharesMatch[1]).replace(/\.(private|public)$/i, "").replace(/u\d+$/i, "").replace(/_/g, "").trim()
+            : "0";
+          const shares = Number(sharesRaw);
+          if (!Number.isFinite(shares) || shares <= 0) continue;
+
+          lpInputs.push({ input: plain, shares, sourceProgram: program });
+        }
       }
 
-      if (lpInputs.length === 0) {
-        toast.error("No LP token record found for this pool. Deposit first, then retry claim.");
+      const publicLpInputs = lpInputs.filter((x) => x.sourceProgram === PUBLIC_CORE_PROGRAM);
+      if (publicLpInputs.length === 0) {
+        if (lpInputs.length > 0) {
+          toast.error("No public LP token found. Your LP record appears to be private-only, so public fee claim cannot execute from this account state.");
+        } else {
+          toast.error("No public LP token record found for this pool. Deposit to public pool first, then retry claim.");
+        }
         return;
       }
 
       // Use the largest LP token record for claim to maximize payout in one call.
-      lpInputs.sort((a, b) => b.shares - a.shares);
-      const lpInput = lpInputs[0].input;
+      publicLpInputs.sort((a, b) => b.shares - a.shares);
+      const lpInput = publicLpInputs[0].input;
 
       const [sharesRes, feesRes] = await Promise.all([
         fetch(`${API_BASE}/program/${PUBLIC_CORE_PROGRAM}/mapping/pool_shares/${pool.poolId}`),
@@ -517,6 +547,40 @@ const Pool = () => {
                   {LEGACY_SETTLEMENT_MESSAGE}
                 </div>
               )}
+
+              <div className="mb-6 flex items-center justify-end gap-2">
+                <span className="text-[10px] text-muted-foreground uppercase tracking-wider">Mode</span>
+                <div className="inline-flex rounded-lg border border-border bg-card p-1">
+                  <button
+                    onClick={() => {
+                      setTradingMode("private");
+                      setStoredTradingMode("private");
+                    }}
+                    className={cn(
+                      "h-7 px-3 text-xs rounded-md transition-colors",
+                      isPrivateMode
+                        ? "bg-primary text-primary-foreground"
+                        : "text-muted-foreground hover:text-foreground",
+                    )}
+                  >
+                    Private
+                  </button>
+                  <button
+                    onClick={() => {
+                      setTradingMode("public");
+                      setStoredTradingMode("public");
+                    }}
+                    className={cn(
+                      "h-7 px-3 text-xs rounded-md transition-colors",
+                      !isPrivateMode
+                        ? "bg-primary text-primary-foreground"
+                        : "text-muted-foreground hover:text-foreground",
+                    )}
+                  >
+                    Public
+                  </button>
+                </div>
+              </div>
 
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
                 {[
@@ -709,18 +773,20 @@ const Pool = () => {
 
                 <button
                   onClick={handleClaimFees}
-                  disabled={txLoading || claimingFees || !connected}
+                  disabled={txLoading || claimingFees || !connected || isPrivateMode}
                   className="mt-3 w-full h-10 text-sm font-medium rounded-xl border border-primary/40 text-primary hover:bg-primary/10 transition-colors disabled:opacity-50"
                 >
                   {claimingFees
                     ? "Claiming Public Fees..."
+                    : isPrivateMode
+                      ? "Switch to Public Mode to Claim Fees"
                     : selectedPoolClaimableFees > 0
                       ? `Claim Public Fees to Wallet (${selectedPoolClaimableFees.toFixed(2)} USDCx est)`
                       : "Claim Public Fees to Wallet"}
                 </button>
-                {STRICT_PRIVATE_CORE_ACTIVE && (
+                {isPrivateMode && (
                   <p className="mt-2 text-[10px] text-muted-foreground">
-                    Public-only claim: this action checks LP records on public core and pays directly to wallet when available.
+                    Public-only claim: requires a public LP token record in autoperp_core_v5.aleo and pays directly to wallet when found.
                   </p>
                 )}
               </div>
