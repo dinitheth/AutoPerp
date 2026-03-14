@@ -177,6 +177,29 @@ function ownerFromRecordInput(input: string): string | null {
   return m[1].replace(/\.(private|public)$/i, "").trim().toLowerCase();
 }
 
+function readU64FieldFromRecordInput(input: string, fieldName: string): bigint | null {
+  const m = input.match(new RegExp(`${fieldName}\\s*:\\s*([\\d_]+)u64`, "i"));
+  if (!m?.[1]) return null;
+  try {
+    return BigInt(m[1].replace(/_/g, ""));
+  } catch {
+    return null;
+  }
+}
+
+function willCloseOverflowU64(recordInput: string, closePriceU64: bigint): boolean {
+  const sizeU64 = readU64FieldFromRecordInput(recordInput, "size");
+  const entryPriceU64 = readU64FieldFromRecordInput(recordInput, "entry_price");
+  if (sizeU64 === null || entryPriceU64 === null) return false;
+
+  const delta = closePriceU64 >= entryPriceU64
+    ? closePriceU64 - entryPriceU64
+    : entryPriceU64 - closePriceU64;
+
+  const U64_MAX = 18_446_744_073_709_551_615n;
+  return sizeU64 * delta > U64_MAX;
+}
+
 interface PositionsListProps {
   coreProgram: string;
   isPrivateMode: boolean;
@@ -459,7 +482,7 @@ const PositionsList = ({ coreProgram, isPrivateMode }: PositionsListProps) => {
     const livePrice = getPrice(pos.market)?.price ?? 0;
     const fallbackMark = Number.isFinite(pos.markPrice) ? pos.markPrice : 0;
     const fallbackEntry = Number.isFinite(pos.entryPrice) ? pos.entryPrice : 0;
-    const currentPrice =
+    let currentPrice =
       (Number.isFinite(livePrice) && livePrice > 0 ? livePrice : 0) ||
       (fallbackMark > 0 ? fallbackMark : 0) ||
       (fallbackEntry > 0 ? fallbackEntry : 0);
@@ -471,6 +494,14 @@ const PositionsList = ({ coreProgram, isPrivateMode }: PositionsListProps) => {
 
     if (!(Number.isFinite(livePrice) && livePrice > 0) && currentPrice === fallbackEntry) {
       toast.info("Live price feed is temporarily unavailable; using entry price fallback for close.");
+    }
+
+    if (!isPrivateMode) {
+      const currentPriceU64 = BigInt(toPrice(currentPrice).replace(/u64$/i, ""));
+      if (willCloseOverflowU64(recordInput, currentPriceU64)) {
+        currentPrice = pos.entryPrice;
+        toast.info("On-chain math guard: using safe close price to avoid overflow rejection.");
+      }
     }
 
     let executedClosePrice = currentPrice;
@@ -605,6 +636,22 @@ const PositionsList = ({ coreProgram, isPrivateMode }: PositionsListProps) => {
             executedClosePrice = retryPrice;
             break;
           }
+        }
+      }
+    }
+
+    if (!result && !isPrivateMode) {
+      const detail = (getLastError() ?? "").trim();
+      const canFallbackAtEntry = pos.entryPrice > 0 && Math.abs(pos.entryPrice - currentPrice) > 0.0000001;
+      if (isUnknownCloseReject(detail) && canFallbackAtEntry) {
+        toast.info("Emergency fallback: retrying close with entry price to bypass on-chain arithmetic rejection.");
+        result = await runClose(pos.entryPrice, 8_000_000);
+        if (!result && handleConsumedAndExitIfNeeded()) {
+          return;
+        }
+        if (result) {
+          executedClosePrice = pos.entryPrice;
+          toast.success("Position closed via safety fallback at entry price.");
         }
       }
     }

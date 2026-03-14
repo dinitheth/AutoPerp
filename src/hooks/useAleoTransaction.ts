@@ -55,7 +55,7 @@ function normalizeTxError(
 
   if (!base || lower === "unknown error" || lower === "unknown") {
     if (functionName === "close_position") {
-      return "Close transaction rejected (unknown reason). Retry after refresh; if it persists, likely stale record/prover rejection under network load.";
+      return "Close transaction rejected (unknown reason). Possible causes: stale record, prover reject, or public close arithmetic overflow at large notional. The app will attempt safety fallback.";
     }
     return `Transaction ${status}: unknown failure from wallet/network.`;
   }
