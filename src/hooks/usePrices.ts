@@ -90,7 +90,7 @@ const usePrices = () => {
 
       if (binancePairs.length > 0) {
         const query = encodeURIComponent(JSON.stringify(binancePairs));
-        const bRes = await fetch(`https://data-api.binance.vision/api/v3/ticker/24hr?symbols=${query}`);
+        const bRes = await fetch(`https://api.binance.com/api/v3/ticker/24hr?symbols=${query}`);
         if (bRes.ok) {
           const bRows = (await bRes.json()) as Array<{ symbol?: string; lastPrice?: string; priceChangePercent?: string }>;
           const byPair: Record<string, { price: number; change24h: number }> = {};

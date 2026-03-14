@@ -171,6 +171,12 @@ async function fetchPublicVaultUsdcx(program: string, owner: string): Promise<nu
   }
 }
 
+function ownerFromRecordInput(input: string): string | null {
+  const m = input.match(/owner\s*:\s*([^,\n}]+)/i);
+  if (!m?.[1]) return null;
+  return m[1].replace(/\.(private|public)$/i, "").trim().toLowerCase();
+}
+
 interface PositionsListProps {
   coreProgram: string;
   isPrivateMode: boolean;
@@ -414,7 +420,10 @@ const PositionsList = ({ coreProgram, isPrivateMode }: PositionsListProps) => {
           Math.abs(c.parsed.entryPrice - pos.entryPrice) <= Math.max(0.01, pos.entryPrice * 0.0001),
         );
 
-        const match = byExactRecord ?? byInstanceId ?? bySignature;
+        // Public-mode close should avoid fuzzy signature-only fallback to reduce stale-input rejects.
+        const match = !isPrivateMode
+          ? (byExactRecord ?? byInstanceId)
+          : (byExactRecord ?? byInstanceId ?? bySignature);
 
         if (!match?.parsed?.rawData || !match.input) return null;
 
@@ -438,6 +447,14 @@ const PositionsList = ({ coreProgram, isPrivateMode }: PositionsListProps) => {
       return;
     }
 
+    if (!isPrivateMode && currentAddress) {
+      const inputOwner = ownerFromRecordInput(recordInput);
+      if (!inputOwner || inputOwner !== currentAddress) {
+        toast.error("Position owner mismatch or stale record detected. Refresh positions and retry close.");
+        return;
+      }
+    }
+
     setClosingId(pos.id);
     const livePrice = getPrice(pos.market)?.price ?? 0;
     const fallbackMark = Number.isFinite(pos.markPrice) ? pos.markPrice : 0;
@@ -458,6 +475,11 @@ const PositionsList = ({ coreProgram, isPrivateMode }: PositionsListProps) => {
 
     let executedClosePrice = currentPrice;
 
+    const isUnknownCloseReject = (detail: string): boolean => {
+      const lower = detail.toLowerCase();
+      return lower.includes("unknown reason") || lower.includes("close transaction rejected");
+    };
+
     const isAlreadyConsumedError = (detail: string): boolean =>
       /already exists in the ledger|input id|already consumed/i.test(detail);
 
@@ -477,6 +499,9 @@ const PositionsList = ({ coreProgram, isPrivateMode }: PositionsListProps) => {
       const fresh = await resolveFreshRecordInput();
       if (fresh) {
         recordInput = fresh;
+      } else if (!isPrivateMode) {
+        // Public close should not proceed with a potentially stale cached record.
+        return null;
       }
 
       if (isPrivateMode) {
@@ -513,6 +538,13 @@ const PositionsList = ({ coreProgram, isPrivateMode }: PositionsListProps) => {
         ], fee);
       }
 
+      if (!isPrivateMode && currentAddress) {
+        const inputOwner = ownerFromRecordInput(recordInput);
+        if (!inputOwner || inputOwner !== currentAddress) {
+          return null;
+        }
+      }
+
       return execute(coreProgram, "close_position", [
         recordInput,
         toPrice(price),
@@ -547,6 +579,32 @@ const PositionsList = ({ coreProgram, isPrivateMode }: PositionsListProps) => {
         if (result) {
           executedClosePrice = pos.entryPrice;
           toast.success("Position closed using safety fallback price. PnL may differ from live mark for this close.");
+        }
+      }
+    }
+
+    if (!result && !isPrivateMode) {
+      const detail = (getLastError() ?? "").trim();
+      if (isUnknownCloseReject(detail)) {
+        toast.info("Close retry in progress: refreshing latest record state...");
+
+        for (let attempt = 0; attempt < 3 && !result; attempt += 1) {
+          await fetchPositions();
+          await new Promise((resolve) => setTimeout(resolve, 1000 + attempt * 1000));
+
+          const refreshedLive = getPrice(pos.market)?.price ?? 0;
+          const retryPrice = Number.isFinite(refreshedLive) && refreshedLive > 0 ? refreshedLive : currentPrice;
+          const retryFee = 6_000_000 + attempt * 1_000_000;
+
+          result = await runClose(retryPrice, retryFee);
+          if (!result && handleConsumedAndExitIfNeeded()) {
+            return;
+          }
+
+          if (result) {
+            executedClosePrice = retryPrice;
+            break;
+          }
         }
       }
     }
@@ -662,13 +720,16 @@ const PositionsList = ({ coreProgram, isPrivateMode }: PositionsListProps) => {
       const nextCount = (closeFailureCountRef.current[key] ?? 0) + 1;
       closeFailureCountRef.current[key] = nextCount;
 
-      const detail = (getLastError() ?? "").trim().toLowerCase();
-      const isUnknownCloseReject = detail.includes("unknown reason") || detail.includes("close transaction rejected");
+      const detail = (getLastError() ?? "").trim();
 
-      if (isUnknownCloseReject && nextCount >= 2) {
-        markPositionClosedLocally(pos, recordInput);
-        toast.warning("Repeated stale close rejections detected. Hiding consumed/stale position row.");
-        setTimeout(() => window.dispatchEvent(new Event("autoperp:positions-changed")), 800);
+      if (isUnknownCloseReject(detail) && nextCount >= 2) {
+        const latestInput = await resolveFreshRecordInput();
+        const stillExists = Boolean(latestInput);
+        if (!stillExists) {
+          markPositionClosedLocally(pos, recordInput);
+          toast.warning("Position record no longer spendable. Hiding stale row.");
+          setTimeout(() => window.dispatchEvent(new Event("autoperp:positions-changed")), 800);
+        }
       }
     }
     setClosingId(null);
