@@ -5,7 +5,9 @@ import { toast } from "sonner";
 import { useWallet } from "@provablehq/aleo-wallet-adaptor-react";
 import {
   useAleoTransaction,
+  API_BASE,
   toPrice,
+  toUsdcx,
 } from "@/hooks/useAleoTransaction";
 import usePrices from "@/hooks/usePrices";
 import { LEGACY_SETTLEMENT_MESSAGE, REAL_SETTLEMENT_AVAILABLE } from "@/lib/protocol";
@@ -144,6 +146,30 @@ const MARKET_IDS: Record<string, string> = {
   "ETH-USD": "1u8",
   "ALEO-USD": "2u8",
 };
+
+function parseMappingBalance(raw: string): number {
+  const structMatch = raw.match(/balance:\s*([\d_]+)u(?:64|128)/i);
+  const value = structMatch?.[1] ?? raw;
+  const cleaned = value
+    .replace(/"/g, "")
+    .replace(/u\d+$/i, "")
+    .replace(/field$/i, "")
+    .replace(/_/g, "")
+    .trim();
+  const n = Number.parseInt(cleaned, 10);
+  return Number.isFinite(n) ? n : 0;
+}
+
+async function fetchPublicVaultUsdcx(program: string, owner: string): Promise<number> {
+  try {
+    const res = await fetch(`${API_BASE}/program/${program}/mapping/vault/${owner}`);
+    if (!res.ok) return 0;
+    const raw = await res.text();
+    return parseMappingBalance(raw) / 1_000_000;
+  } catch {
+    return 0;
+  }
+}
 
 interface PositionsListProps {
   coreProgram: string;
@@ -312,6 +338,9 @@ const PositionsList = ({ coreProgram, isPrivateMode }: PositionsListProps) => {
     }
 
     let recordInput = serializePositionRecordInput(pos.rawData);
+    const targetRecordFp = recordInput ? hashText(recordInput) : null;
+    let publicVaultBefore = 0;
+    let privateVaultBeforeMicro = 0;
     const alreadyClosed = closedPositionIdsRef.current;
     if (alreadyClosed.has(`id:${pos.id}`) || alreadyClosed.has(`sig:${pos.signature}`) || (pos.recordFp && alreadyClosed.has(`rec:${pos.recordFp}`))) {
       markPositionClosedLocally(pos, recordInput);
@@ -320,6 +349,34 @@ const PositionsList = ({ coreProgram, isPrivateMode }: PositionsListProps) => {
     }
 
     const currentAddress = (address ?? "").trim().toLowerCase();
+
+    const loadPrivateVaultState = async () => {
+      if (!address) return null;
+      try {
+        const records = await requestProgramRecords(
+          requestRecords,
+          coreProgram,
+          true,
+          disconnect,
+          connect,
+        );
+        const vault = findVaultRecord(records, address);
+        if (!vault) return null;
+        return {
+          input: vault.input,
+          balanceMicro: vault.balanceMicro,
+        };
+      } catch {
+        return null;
+      }
+    };
+
+    if (!isPrivateMode && address) {
+      publicVaultBefore = await fetchPublicVaultUsdcx(coreProgram, address);
+    } else if (isPrivateMode) {
+      const privateBefore = await loadPrivateVaultState();
+      privateVaultBeforeMicro = privateBefore?.balanceMicro ?? 0;
+    }
 
     const resolveFreshRecordInput = async (): Promise<string | null> => {
       try {
@@ -336,25 +393,38 @@ const PositionsList = ({ coreProgram, isPrivateMode }: PositionsListProps) => {
           .map((r) => parseAleoPositionRecord(r, MARKET_NAMES))
           .filter((p): p is NonNullable<ReturnType<typeof parseAleoPositionRecord>> => p !== null);
 
-        const byId = latestParsed.find((p) => p.id === pos.id);
-        const match = byId ?? latestParsed.find(
-          (p) =>
-            p.market === pos.market &&
-            p.direction === pos.direction &&
-            p.leverage === pos.leverage &&
-            Math.abs(p.collateral - pos.collateral) <= 0.000001 &&
-            Math.abs(p.entryPrice - pos.entryPrice) <= Math.max(0.01, pos.entryPrice * 0.0001),
+        const candidates = latestParsed
+          .map((p) => ({
+            parsed: p,
+            input: serializePositionRecordInput(p.rawData),
+          }))
+          .filter((x): x is { parsed: NonNullable<ReturnType<typeof parseAleoPositionRecord>>; input: string } => Boolean(x.input));
+
+        const byExactRecord = targetRecordFp
+          ? candidates.find((c) => hashText(c.input) === targetRecordFp)
+          : undefined;
+
+        const byInstanceId = candidates.find((c) => c.parsed.id === pos.id);
+        const bySignature = candidates.find((c) =>
+          c.parsed.positionId === pos.positionId &&
+          c.parsed.market === pos.market &&
+          c.parsed.direction === pos.direction &&
+          c.parsed.leverage === pos.leverage &&
+          Math.abs(c.parsed.collateral - pos.collateral) <= 0.000001 &&
+          Math.abs(c.parsed.entryPrice - pos.entryPrice) <= Math.max(0.01, pos.entryPrice * 0.0001),
         );
 
-        if (!match?.rawData) return null;
+        const match = byExactRecord ?? byInstanceId ?? bySignature;
 
-        const owner = getPositionRecordOwner(match.rawData)?.toLowerCase() ?? "";
+        if (!match?.parsed?.rawData || !match.input) return null;
+
+        const owner = getPositionRecordOwner(match.parsed.rawData)?.toLowerCase() ?? "";
         if (currentAddress && owner && owner !== currentAddress) {
           toast.error("Position owner mismatch. Refresh records and reconnect the owner wallet.");
           return null;
         }
 
-        return serializePositionRecordInput(match.rawData);
+        return match.input;
       } catch {
         return null;
       }
@@ -505,6 +575,60 @@ const PositionsList = ({ coreProgram, isPrivateMode }: PositionsListProps) => {
 
     if (result) {
       markPositionClosedLocally(pos, recordInput);
+
+      if (!isPrivateMode && address) {
+        let publicVaultAfter = publicVaultBefore;
+        for (let i = 0; i < 8; i += 1) {
+          const next = await fetchPublicVaultUsdcx(coreProgram, address);
+          if (next > publicVaultAfter) {
+            publicVaultAfter = next;
+            break;
+          }
+          publicVaultAfter = next;
+          await new Promise((resolve) => setTimeout(resolve, 1200));
+        }
+
+        const credit = Math.max(0, publicVaultAfter - publicVaultBefore);
+        if (credit > 0.000001) {
+          toast.info(`Withdrawing ${credit.toFixed(6)} USDCx to wallet...`);
+          const withdrawResult = await execute(coreProgram, "withdraw_collateral", [toUsdcx(credit)], 500_000);
+          if (withdrawResult) {
+            toast.success(`Closed position payout sent to wallet: ${credit.toFixed(6)} USDCx`);
+          } else {
+            const wdErr = (getLastError() ?? "Unknown error").trim();
+            toast.warning(`Close succeeded, but auto-withdraw failed: ${wdErr}`);
+          }
+        }
+      }
+
+      if (isPrivateMode) {
+        let privateAfter = await loadPrivateVaultState();
+        for (let i = 0; i < 10; i += 1) {
+          if (privateAfter && privateAfter.balanceMicro > privateVaultBeforeMicro) break;
+          await new Promise((resolve) => setTimeout(resolve, 1200));
+          privateAfter = await loadPrivateVaultState();
+        }
+
+        const afterMicro = privateAfter?.balanceMicro ?? privateVaultBeforeMicro;
+        const creditMicro = Math.max(0, afterMicro - privateVaultBeforeMicro);
+        if (creditMicro > 0 && privateAfter?.input) {
+          const creditUsdcx = creditMicro / 1_000_000;
+          toast.info(`Withdrawing ${creditUsdcx.toFixed(6)} USDCx to wallet...`);
+          const withdrawResult = await execute(
+            coreProgram,
+            "withdraw_collateral",
+            [privateAfter.input, `${creditMicro}u64`],
+            1_000_000,
+          );
+          if (withdrawResult) {
+            toast.success(`Closed position payout sent to wallet: ${creditUsdcx.toFixed(6)} USDCx`);
+          } else {
+            const wdErr = (getLastError() ?? "Unknown error").trim();
+            toast.warning(`Close succeeded, but private auto-withdraw failed: ${wdErr}`);
+          }
+        }
+      }
+
       const notional = pos.size;
       const pnl =
         pos.direction === "long"
