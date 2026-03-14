@@ -8,7 +8,6 @@ type TradeRow = { price: number; size: number; side: "buy" | "sell"; time: strin
 const COINBASE_PRODUCTS: Record<string, string | null> = {
   "BTC-USD": "BTC-USD",
   "ETH-USD": "ETH-USD",
-  "SOL-USD": "SOL-USD",
   // Coinbase spot order book may not exist for ALEO-USD; we will fall back to synthetic levels.
   "ALEO-USD": null,
 };

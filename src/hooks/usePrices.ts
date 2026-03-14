@@ -7,24 +7,21 @@ export interface MarketPrice {
   positive: boolean;
 }
 
-const MARKET_SYMBOLS = ["BTC-USD", "ETH-USD", "ALEO-USD", "SOL-USD"] as const;
+const MARKET_SYMBOLS = ["BTC-USD", "ETH-USD", "ALEO-USD"] as const;
 const COINGECKO_IDS: Record<typeof MARKET_SYMBOLS[number], string> = {
   "BTC-USD": "bitcoin",
   "ETH-USD": "ethereum",
   "ALEO-USD": "aleo",
-  "SOL-USD": "solana",
 };
 const BINANCE_SYMBOLS: Partial<Record<typeof MARKET_SYMBOLS[number], string>> = {
   "BTC-USD": "BTCUSDT",
   "ETH-USD": "ETHUSDT",
   "ALEO-USD": "ALEOUSDT",
-  "SOL-USD": "SOLUSDT",
 };
 const PRICE_CACHE_KEY = "autoperp:prices:cache:v1";
 const WS_SYMBOL_TO_MARKET: Record<string, string> = {
   BTCUSDT: "BTC-USD",
   ETHUSDT: "ETH-USD",
-  SOLUSDT: "SOL-USD",
 };
 
 function defaultPrices(): MarketPrice[] {
@@ -32,7 +29,6 @@ function defaultPrices(): MarketPrice[] {
     { symbol: "BTC-USD", price: 0, change24h: 0, positive: true },
     { symbol: "ETH-USD", price: 0, change24h: 0, positive: true },
     { symbol: "ALEO-USD", price: 0, change24h: 0, positive: false },
-    { symbol: "SOL-USD", price: 0, change24h: 0, positive: true },
   ];
 }
 
@@ -169,7 +165,7 @@ const usePrices = () => {
   }, []);
 
   useEffect(() => {
-    const streams = ["btcusdt@miniTicker", "ethusdt@miniTicker", "solusdt@miniTicker"].join("/");
+    const streams = ["btcusdt@miniTicker", "ethusdt@miniTicker"].join("/");
     const ws = new WebSocket(`wss://stream.binance.com:9443/stream?streams=${streams}`);
 
     ws.onmessage = (event) => {

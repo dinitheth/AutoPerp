@@ -12,7 +12,6 @@ const TradingChart = ({ market }: TradingChartProps) => {
       "BTC-USD": "BINANCE:BTCUSDT",
       "ETH-USD": "BINANCE:ETHUSDT",
       "ALEO-USD": "MEXC:ALEOUSDT",
-      "SOL-USD": "BINANCE:SOLUSDT",
     };
     return map[market] || "BINANCE:BTCUSDT";
   }, [market]);
