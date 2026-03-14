@@ -786,7 +786,7 @@ const Pool = () => {
                 </button>
                 {isPrivateMode && (
                   <p className="mt-2 text-[10px] text-muted-foreground">
-                    Public-only claim: requires a public LP token record in autoperp_core_v5.aleo and pays directly to wallet when found.
+                    Claim fees is public only.
                   </p>
                 )}
               </div>

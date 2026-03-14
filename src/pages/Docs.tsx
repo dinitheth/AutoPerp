@@ -75,13 +75,60 @@ If close position shows "Transaction Rejected" or "Unknown error":
   },
   {
     id: "lp-yield",
-    title: "LP Earnings",
-    content: `Liquidity providers earn from protocol trading fees accrued in each market pool.
+    title: "Liquidity Pools",
+    content: `How Liquidity Pools work
 
-- Deposit USDCx into a selected pool (BTC/ETH/ALEO)
-- Fees accumulate on-chain in pool_fees for that market
-- Your estimated claimable fees use: (user_shares * total_pool_fees) / total_pool_shares
-- Trader winner payouts on close are settled from the same pool balance`,
+AutoPerp has one pool per market:
+- BTC-USD = 0u8
+- ETH-USD = 1u8
+- ALEO-USD = 2u8
+
+LPs deposit USDCx into a selected pool and receive LP shares. Traders opening positions pay protocol fees that accrue to that pool. LP earnings come from those accumulated pool fees.
+
+Fee generation logic
+
+Notional:
+notional = collateral * leverage
+
+Protocol fee rate:
+0.06% of notional
+
+On-chain integer form:
+fee = (size * 6) / 10000
+
+Estimated Claimable Fees formula
+
+Estimated Claimable Fees = (your_shares * total_pool_fees) / total_pool_shares
+
+This value moves over time as:
+- new deposits increase total pool shares
+- new trades increase total pool fees
+- other LP claims decrease total pool fees
+
+Worked example (1000 USDCx depositor)
+
+If you deposit 1000 USDCx and:
+- total_pool_shares = 50,000
+- total_pool_fees = 300 USDCx
+
+Then estimate = (1000 * 300) / 50,000 = 6 USDCx.
+
+If total_pool_shares later grows to 100,000 while fees stay 300, estimate becomes 3 USDCx.
+
+Public claim behavior
+
+- Claim fees to wallet is Public mode only.
+- Public claim requires a public LP token record from autoperp_core_v5.aleo.
+- On success, claim pays USDCx to wallet and reduces pool_fees.
+
+Mode rules
+
+- Public mode: public LP accounting + public fee claim to wallet.
+- Private mode: private LP state path; public claim button is disabled for that mode.
+
+Pool policy note
+
+Pool UI displays: "Deposited liquidity is locked for 2 years".`,
   },
   {
     id: "status",

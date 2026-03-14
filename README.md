@@ -215,6 +215,117 @@ Program IDs are hardcoded in code (no runtime env switching for core/agent/oracl
 
 Trading mode is selected in-app (Public/Private switch), and resolves to the corresponding hardcoded core program.
 
+## Liquidity Pools
+
+This section explains exactly how AutoPerp liquidity pools work, how LP fees are generated, and how `Estimated Claimable Fees` is calculated.
+
+### 1) What A Liquidity Pool Does
+
+- Each market has its own pool: BTC-USD (`0u8`), ETH-USD (`1u8`), ALEO-USD (`2u8`).
+- Traders pay protocol fees when opening positions.
+- Those fees accumulate in that market's `pool_fees`.
+- LPs earn a pro-rata share of `pool_fees` based on LP shares.
+
+In settlement/public core (`autoperp_core_v5.aleo`), LP fee claims are paid directly to wallet using `transfer_public`.
+
+### 2) Deposit And Shares Logic
+
+When a depositor adds `amount` USDCx liquidity:
+
+- LP token `shares = amount`
+- LP token `deposit_amount = amount`
+- Pool totals update:
+    - `pool_balance += amount`
+    - `pool_deposits += amount`
+    - `pool_shares += amount`
+
+So shares are a 1:1 accounting unit with deposited amount at mint time.
+
+### 3) How Trading Fees Are Generated
+
+On position open, fee is charged from notional size:
+
+$$
+	ext{notional} = \text{collateral} \times \text{leverage}
+$$
+
+$$
+	ext{fee} = \text{notional} \times 0.06\% = \text{notional} \times \frac{6}{10000}
+$$
+
+Equivalent integer formula used on-chain:
+
+$$
+	ext{fee} = \frac{\text{size} \times 6}{10000}
+$$
+
+That fee is added to `pool_fees` for the selected market.
+
+### 4) Estimated Claimable Fees Formula
+
+UI uses:
+
+$$
+	ext{Estimated Claimable Fees} = \frac{\text{your shares} \times \text{total pool fees}}{\text{total pool shares}}
+$$
+
+This is an estimate and can move as:
+
+- new LP deposits change `total pool shares`
+- more trading activity changes `total pool fees`
+- other LPs claim fees (reducing `total pool fees`)
+
+### 5) Worked Example (1000 USDCx Depositor)
+
+Assume you deposit `1000` USDCx into BTC pool.
+
+Case A:
+
+- Total pool shares after your deposit = `50,000`
+- Your shares = `1,000`
+- Accrued pool fees = `300` USDCx
+
+Then:
+
+$$
+	ext{your claim estimate} = \frac{1000 \times 300}{50000} = 6 \text{ USDCx}
+$$
+
+Case B (dilution after new deposits):
+
+- Your shares remain `1,000`
+- Total pool shares grow to `100,000`
+- Pool fees remain `300`
+
+Then:
+
+$$
+	ext{your claim estimate} = \frac{1000 \times 300}{100000} = 3 \text{ USDCx}
+$$
+
+Your absolute shares did not change, but your percentage of the pool decreased.
+
+### 6) Public Claim Behavior
+
+- Fee claim to wallet is public-mode only.
+- Claim transaction uses LP token input + current `pool_shares` + current `pool_fees`.
+- On success, USDCx is transferred to the claimer wallet and `pool_fees` decreases by claimed amount.
+
+### 7) Why You May See Estimate But Cannot Claim Public
+
+If you are viewing private LP state (or deposited in private mode), UI can show estimated fees for that state, but public claim requires a public LP token record.
+
+Use Pool mode switch:
+
+- `Public` mode: public deposit/public LP shares/public fee claim to wallet
+- `Private` mode: private LP state path (no public wallet claim flow)
+
+### 8) Lock Notice
+
+Pool UI displays: `Deposited liquidity is locked for 2 years` as product policy text.
+
+## Build and Deploy
+
 ## Build and Deploy
 
 ### Contract Build Order
