@@ -110,21 +110,62 @@ const usePrices = () => {
         }
       }
 
-      // 1b) ALEO fast path: MEXC ticker.
-      const aleoMexc = MEXC_SYMBOLS["ALEO-USD"];
-      if (aleoMexc) {
-        const mRes = await fetch(`https://api.mexc.com/api/v3/ticker/24hr?symbol=${aleoMexc}`);
-        if (mRes.ok) {
-          const mRow = (await mRes.json()) as { lastPrice?: string; priceChangePercent?: string };
-          const price = Number(mRow.lastPrice ?? 0);
-          const change24h = Number(mRow.priceChangePercent ?? 0);
-          if (Number.isFinite(price) && price > 0) {
-            nextBySymbol["ALEO-USD"] = {
-              price,
-              change24h: Number.isFinite(change24h) ? change24h : 0,
-            };
+      // 1b) ALEO fast path with multi-source fallback (prevents sticky 0 when one API fails/CORS/rate-limits).
+      const loadAleoQuote = async (): Promise<{ price: number; change24h: number } | null> => {
+        const aleoMexc = MEXC_SYMBOLS["ALEO-USD"];
+
+        if (aleoMexc) {
+          try {
+            const mRes = await fetch(`https://api.mexc.com/api/v3/ticker/24hr?symbol=${aleoMexc}`);
+            if (mRes.ok) {
+              const mRow = (await mRes.json()) as { lastPrice?: string; priceChangePercent?: string };
+              const price = Number(mRow.lastPrice ?? 0);
+              const change24h = Number(mRow.priceChangePercent ?? 0);
+              if (Number.isFinite(price) && price > 0) {
+                return { price, change24h: Number.isFinite(change24h) ? change24h : 0 };
+              }
+            }
+          } catch {
+            // fall through
           }
         }
+
+        try {
+          const cgRes = await fetch("https://api.coingecko.com/api/v3/simple/price?ids=aleo&vs_currencies=usd&include_24hr_change=true");
+          if (cgRes.ok) {
+            const cg = (await cgRes.json()) as { aleo?: { usd?: number; usd_24h_change?: number } };
+            const price = Number(cg?.aleo?.usd ?? 0);
+            const change24h = Number(cg?.aleo?.usd_24h_change ?? 0);
+            if (Number.isFinite(price) && price > 0) {
+              return { price, change24h: Number.isFinite(change24h) ? change24h : 0 };
+            }
+          }
+        } catch {
+          // fall through
+        }
+
+        try {
+          const ccRes = await fetch("https://min-api.cryptocompare.com/data/pricemultifull?fsyms=ALEO&tsyms=USD");
+          if (ccRes.ok) {
+            const cc = (await ccRes.json()) as {
+              RAW?: { ALEO?: { USD?: { PRICE?: number; CHANGEPCT24HOUR?: number } } };
+            };
+            const price = Number(cc?.RAW?.ALEO?.USD?.PRICE ?? 0);
+            const change24h = Number(cc?.RAW?.ALEO?.USD?.CHANGEPCT24HOUR ?? 0);
+            if (Number.isFinite(price) && price > 0) {
+              return { price, change24h: Number.isFinite(change24h) ? change24h : 0 };
+            }
+          }
+        } catch {
+          // fall through
+        }
+
+        return null;
+      };
+
+      const aleoQuote = await loadAleoQuote();
+      if (aleoQuote) {
+        nextBySymbol["ALEO-USD"] = aleoQuote;
       }
 
       // 2) Fallback/fill: CoinGecko for anything missing from Binance.
