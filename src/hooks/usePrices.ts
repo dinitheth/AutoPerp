@@ -16,6 +16,8 @@ const COINGECKO_IDS: Record<typeof MARKET_SYMBOLS[number], string> = {
 const BINANCE_SYMBOLS: Partial<Record<typeof MARKET_SYMBOLS[number], string>> = {
   "BTC-USD": "BTCUSDT",
   "ETH-USD": "ETHUSDT",
+};
+const MEXC_SYMBOLS: Partial<Record<typeof MARKET_SYMBOLS[number], string>> = {
   "ALEO-USD": "ALEOUSDT",
 };
 const PRICE_CACHE_KEY = "autoperp:prices:cache:v1";
@@ -104,6 +106,23 @@ const usePrices = () => {
             const data = byPair[pair];
             if (!data) continue;
             nextBySymbol[market] = data;
+          }
+        }
+      }
+
+      // 1b) ALEO fast path: MEXC ticker.
+      const aleoMexc = MEXC_SYMBOLS["ALEO-USD"];
+      if (aleoMexc) {
+        const mRes = await fetch(`https://api.mexc.com/api/v3/ticker/24hr?symbol=${aleoMexc}`);
+        if (mRes.ok) {
+          const mRow = (await mRes.json()) as { lastPrice?: string; priceChangePercent?: string };
+          const price = Number(mRow.lastPrice ?? 0);
+          const change24h = Number(mRow.priceChangePercent ?? 0);
+          if (Number.isFinite(price) && price > 0) {
+            nextBySymbol["ALEO-USD"] = {
+              price,
+              change24h: Number.isFinite(change24h) ? change24h : 0,
+            };
           }
         }
       }
