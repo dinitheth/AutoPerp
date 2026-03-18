@@ -49,19 +49,19 @@ AutoPerp deploys five independent Aleo programs, each responsible for a distinct
 
 ### Record Types
 
-The protocol defines nine distinct Aleo record types across its programs:
+The protocol defines nine distinct Aleo record types across its programs. This defines which on-chain smart contract is responsible for minting and managing the record:
 
-| Record | Program | Description |
+| Record | Aleo Smart Contract | Description |
 |---|---|---|
-| `PositionRecord` | Core (both) | Encrypted perpetual position with market, direction, collateral, leverage, entry price, size, SL/TP |
-| `LiquidationAuth` | Core (both) | Authorization record issued to agent for liquidation monitoring |
-| `TraderVault` | Private core | Encrypted trader balance record (no public mapping exposure) |
-| `PoolState` | Private core | Encrypted pool accounting record (balance, deposits, shares, fees, OI, position count) |
-| `LPToken` | Core (both) | LP ownership record with pool ID, shares, and deposit amount |
-| `FeeReceipt` | Core (both) | Proof of fee claim with pool ID and claimed amount |
-| `ClaimableFeeEstimate` | Core (both) | Read-only estimate of claimable fees based on current pool state |
-| `AgentAuth` | Agent | Scoped, revocable delegation record with bitmask permissions and block-height expiry |
-| `ExecutionReceipt` | Agent | Proof that an agent executed an action on behalf of a trader |
+| `PositionRecord` | `autoperp_core_v5` and `autoperp_core_private_v2` | Encrypted perpetual position with market, direction, collateral, leverage, entry price, size, SL/TP |
+| `LiquidationAuth` | `autoperp_core_v5` and `autoperp_core_private_v2` | Authorization record issued to agent for liquidation monitoring |
+| `TraderVault` | `autoperp_core_private_v2` | Encrypted trader balance record (no public mapping exposure) |
+| `PoolState` | `autoperp_core_private_v2` | Encrypted pool accounting record (balance, deposits, shares, fees, OI, position count) |
+| `LPToken` | `autoperp_core_v5` and `autoperp_core_private_v2` | LP ownership record with pool ID, shares, and deposit amount |
+| `FeeReceipt` | `autoperp_core_v5` and `autoperp_core_private_v2` | Proof of fee claim with pool ID and claimed amount |
+| `ClaimableFeeEstimate` | `autoperp_core_v5` and `autoperp_core_private_v2` | Read-only estimate of claimable fees based on current pool state |
+| `AgentAuth` | `autoperp_agent_v2` | Scoped, revocable delegation record with bitmask permissions and block-height expiry |
+| `ExecutionReceipt` | `autoperp_agent_v2` | Proof that an agent executed an action on behalf of a trader |
 
 ---
 
