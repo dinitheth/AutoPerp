@@ -51,7 +51,7 @@ const Footer = () => {
             AutoPerp Protocol. Built on Aleo.
           </p>
           <p className="text-xs text-muted-foreground">
-            Testnet only. Not financial advice.
+            Testnet only.
           </p>
         </div>
       </div>

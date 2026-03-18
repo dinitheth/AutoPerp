@@ -7,7 +7,7 @@ import { useWallet } from "@provablehq/aleo-wallet-adaptor-react";
 import { PROGRAMS } from "@/hooks/useAleoTransaction";
 import { PRIVATE_CORE_PROGRAM } from "@/lib/protocol";
 import { cn } from "@/lib/utils";
-import { parseAleoPositionRecord } from "@/lib/positionRecord";
+import { isLikelyPositionRecord, isRecordSpent, parseAleoPositionRecord } from "@/lib/positionRecord";
 import { requestProgramRecordsAny } from "@/lib/walletRecords";
 import {
   addEquityPoint,
@@ -362,7 +362,19 @@ const Portfolio = () => {
   const lockedVault = n2(vaultBalance);
   const credits = n2(creditsBalance);
 
-  const executedOpens = useMemo(() => trades.filter((t) => t.type === "OPEN"), [trades]);
+  const dedupedTrades = useMemo(() => {
+    const seen = new Set<string>();
+    const out: PortfolioTradeEvent[] = [];
+    for (const t of trades) {
+      const key = `${t.type}:${t.txId}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(t);
+    }
+    return out;
+  }, [trades]);
+
+  const executedOpens = useMemo(() => dedupedTrades.filter((t) => t.type === "OPEN"), [dedupedTrades]);
   const totalVolume = useMemo(() => {
     const v = executedOpens.reduce((acc, t) => acc + Math.abs(t.collateralUsdcx * t.leverage), 0);
     if (v > 0) return v;
@@ -371,10 +383,10 @@ const Portfolio = () => {
   }, [executedOpens, positions]);
 
   const realizedPnl = useMemo(() => {
-    return trades
+    return dedupedTrades
       .filter((t) => t.type === "CLOSE")
       .reduce((acc, t) => acc + (t.pnlUsd ?? 0), 0);
-  }, [trades]);
+  }, [dedupedTrades]);
 
   const unrealizedPnl = useMemo(() => positions.reduce((acc, p) => acc + p.pnlUsd, 0), [positions]);
 
@@ -448,10 +460,19 @@ const Portfolio = () => {
 
       const mapRows = (allRecords: unknown[]): PositionRow[] => {
         const parsed = allRecords
+          .filter((r) => !isRecordSpent(r))
+          .filter(isLikelyPositionRecord)
           .map((r) => parseAleoPositionRecord(r, MARKET_NAMES))
           .filter((p): p is NonNullable<ReturnType<typeof parseAleoPositionRecord>> => p !== null);
 
-        return parsed.map((p) => {
+        const seen = new Set<string>();
+        const unique = parsed.filter((p) => {
+          if (seen.has(p.id)) return false;
+          seen.add(p.id);
+          return true;
+        });
+
+        return unique.map((p) => {
           const live = getPrice(p.market)?.price ?? p.entryPrice;
           const size = p.size;
           const pnl =
@@ -495,8 +516,11 @@ const Portfolio = () => {
         if (snapshotRows.length > 0) rows = snapshotRows;
       }
 
-      setPositions(rows);
-      saveCachedPositions(rows, address);
+      setPositions((prev) => {
+        const next = rows.length === 0 && prev.length > 0 ? prev : rows;
+        if (next !== prev) saveCachedPositions(next, address);
+        return next;
+      });
     } catch {
       // Keep previously shown (cached) rows for better UX on slow wallet responses.
       setPositionsError("Could not load positions right now.");

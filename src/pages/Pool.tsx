@@ -19,6 +19,7 @@ import {
 } from "@/lib/protocol";
 import { findPoolStateRecord } from "@/lib/privateCoreRecords";
 import { isProgramNotAllowedError, requestProgramRecords } from "@/lib/walletRecords";
+import { isRecordSpent } from "@/lib/positionRecord";
 import { toast } from "sonner";
 
 type LpCandidate = {
@@ -36,6 +37,15 @@ const pools = [
 interface UserLpInfo {
   poolId: string;
   shares: number;
+}
+
+function hashText(input: string): string {
+  let hash = 2166136261;
+  for (let i = 0; i < input.length; i += 1) {
+    hash ^= input.charCodeAt(i);
+    hash += (hash << 1) + (hash << 4) + (hash << 7) + (hash << 8) + (hash << 24);
+  }
+  return Math.abs(hash >>> 0).toString(16);
 }
 
 function parseUnsignedInt(raw: string): number {
@@ -246,7 +256,9 @@ const Pool = () => {
         connect,
       );
       const sums: Record<string, number> = {};
+      const seen = new Set<string>();
       for (const record of records) {
+        if (isRecordSpent(record)) continue;
         const source = record as Record<string, unknown>;
         const plain =
           (typeof source.recordPlaintext === "string" && source.recordPlaintext) ||
@@ -254,6 +266,10 @@ const Pool = () => {
           (typeof source.record === "string" && source.record) ||
           (typeof source.data === "string" && source.data) ||
           (typeof record === "string" ? record : "");
+        if (!plain) continue;
+        const fp = hashText(plain);
+        if (seen.has(fp)) continue;
+        seen.add(fp);
         if (!plain || !/pool_id\s*:/i.test(plain) || !/shares\s*:/i.test(plain) || !/deposit_amount\s*:/i.test(plain)) {
           continue;
         }
@@ -311,6 +327,7 @@ const Pool = () => {
   const selectedPoolFeeBalance = poolFees[selectedPoolId] ?? 0;
   const selectedPoolSharePct =
     selectedPoolTotalShares > 0 ? (selectedPoolUserShares / selectedPoolTotalShares) * 100 : 0;
+  const selectedPoolSharePctClamped = Math.max(0, Math.min(100, selectedPoolSharePct));
   const selectedPoolClaimableFees = estimateClaimableFees(
     selectedPoolUserShares,
     selectedPoolTotalShares,
@@ -431,6 +448,7 @@ const Pool = () => {
         }
 
         for (const record of records) {
+          if (isRecordSpent(record)) continue;
           const plain = extractRecordPlaintext(record);
           if (!plain) continue;
           if (!/pool_id\s*:/i.test(plain) || !/shares\s*:/i.test(plain) || !/deposit_amount\s*:/i.test(plain)) {
@@ -704,7 +722,7 @@ const Pool = () => {
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Your Pool Share</span>
                     <span className="font-mono text-foreground">
-                      {selectedPoolSharePct.toFixed(2)}%
+                      {selectedPoolSharePctClamped.toFixed(2)}%
                     </span>
                   </div>
                   <div className="flex justify-between">
@@ -732,7 +750,7 @@ const Pool = () => {
                   </div>
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Lock Period</span>
-                    <span className="text-warning text-[10px]">Deposited liquidity is locked for 2 years</span>
+                    <span className="text-warning text-[10px]">Target 2-year lock policy (full on-chain enforcement in progress)</span>
                   </div>
                 </div>
 
