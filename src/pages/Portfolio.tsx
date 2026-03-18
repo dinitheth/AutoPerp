@@ -473,7 +473,8 @@ const Portfolio = () => {
         });
 
         return unique.map((p) => {
-          const live = getPrice(p.market)?.price ?? p.entryPrice;
+          const liveRaw = getPrice(p.market)?.price ?? 0;
+          const live = Number.isFinite(liveRaw) && liveRaw > 0 ? liveRaw : p.entryPrice;
           const size = p.size;
           const pnl =
             p.direction === "long"
