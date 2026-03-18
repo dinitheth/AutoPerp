@@ -69,17 +69,16 @@ The protocol defines nine distinct Aleo record types across its programs:
 
 `autoperp_oracle.aleo` implements a standalone on-chain oracle with admin-guarded price feeds, time-weighted average price (TWAP) mark pricing, and divergence-based funding rate calculation.
 
-### Mappings
+### Key Features
 
-| Mapping | Type | Description |
-|---|---|---|
-| `prices` | `u8 => u64` | Latest oracle price per market (8-decimal precision) |
-| `price_timestamps` | `u8 => u32` | Block height of last price update per market |
-| `price_confidence` | `u8 => u64` | Confidence interval per market (8-decimal precision) |
-| `mark_prices` | `u8 => u64` | TWAP-adjusted mark price per market |
-| `funding_rates` | `u8 => u64` | Funding rate per market (rate x 1,000,000) |
-| `funding_direction` | `u8 => u8` | Funding direction flag: 0 = longs pay, 1 = shorts pay |
-| `oracle_admin` | `u8 => field` | Admin address hash for access control |
+| Feature | Implementation |
+|---|---|
+| Price Feeds | `mapping prices: u8 => u64` — per-market 8-decimal precision |
+| Mark Price (TWAP) | `update_mark_price()` — 70/30 weighted TWAP blend |
+| Funding Rate | `update_funding_rate()` — divergence-based with direction flag |
+| Confidence Interval | `mapping price_confidence: u8 => u64` — per-market confidence |
+| Admin-guarded updates | `oracle_admin` mapping with BHP256 hash verification |
+| Timestamps | `price_timestamps` mapped to `block.height` |
 
 ### Transitions
 
@@ -116,20 +115,20 @@ direction = mark_price > oracle_price ? 0 (longs pay) : 1 (shorts pay)
 
 Each market has its own isolated liquidity pool. Traders pay protocol fees when opening positions, and those fees accumulate in the corresponding pool. LPs earn a pro-rata share of accrued fees based on their LP token shares.
 
-### Pool State Tracking
+### Core Mechanics
 
-**Public core** (`autoperp_core_v5.aleo`) uses on-chain mappings:
-
-| Mapping | Description |
-|---|---|
-| `pool_balance` | Total USDCx balance per pool |
-| `pool_deposits` | Cumulative deposits per pool |
-| `pool_shares` | Total LP shares per pool |
-| `pool_fees` | Accrued trading fees per pool |
-| `open_interest` | Total notional open interest per pool |
-| `position_count` | Number of open positions per pool |
-
-**Private core** (`autoperp_core_private_v2.aleo`) stores all pool state inside encrypted `PoolState` records with no public mappings.
+| Feature | Public Core (`v5`) | Private Core (`private_v2`) |
+|---|---|---|
+| Deposit liquidity | `deposit_liquidity()` | `deposit_liquidity()` |
+| Withdraw liquidity | `withdraw_liquidity()` | `withdraw_liquidity()` |
+| LP Token records | `LPToken { shares, deposit_amount }` | Same |
+| Share tracking | `pool_shares` mapping | `PoolState.shares` record field |
+| Fee accrual | `pool_fees` mapping | `PoolState.fees` record field |
+| Pro-rata fee claim | `claim_fees()` with `FeeReceipt` | `claim_fees()` with `FeeReceipt` |
+| Fee estimation | `estimate_claimable_fees()` | `estimate_claimable_fees()` |
+| Open interest tracking | `open_interest` mapping | `PoolState.open_interest` |
+| Position count | `position_count` mapping | `PoolState.position_count` |
+| Multi-pool support | 3 pools (BTC, ETH, ALEO) | Same |
 
 ### Deposit and Share Logic
 
@@ -216,19 +215,17 @@ The `max_slippage` field in `AgentAuth` records caps the maximum allowed slippag
 
 ## Privacy Architecture
 
-### On-Chain Privacy
+### On-Chain Privacy Implementation
 
-**Private Mode** (`autoperp_core_private_v2.aleo`):
-
-- Zero public mappings for position, vault, or pool state.
-- All state transitions consume and produce encrypted Aleo records: `TraderVault`, `PoolState`, `PositionRecord`, `LPToken`.
-- Collateral settlement calls `test_usdcx_stablecoin.aleo` transfer rails. The USDCx transfer leg itself is public (a limitation of the stablecoin contract), but all trading state remains private.
-
-**Public Settlement Mode** (`autoperp_core_v5.aleo`):
-
-- Position records are private (encrypted).
-- Vault balances, pool accounting, and settlement use public mappings for token compatibility.
-- USDCx transfers use `transfer_public` and `transfer_public_as_signer`.
+| Privacy Feature | AutoPerp Implementation |
+|---|---|
+| Private positions | `autoperp_core_private_v2.aleo` uses zero public mappings — all state is in encrypted records |
+| Private vaults | `TraderVault` record — balance is never exposed on-chain |
+| Private pool state | `PoolState` record — pool accounting stays encrypted |
+| Private LP tokens | Records-only, no public mapping exposure |
+| Hybrid settlement | Public USDCx transfer rails for compatibility, but position/vault state stays private |
+| Database privacy | SHA-256 hashed wallet addresses, stripped TX hashes |
+| Privacy-aware UI | Agent features hidden in Private Mode automatically |
 
 ### Off-Chain Privacy (Trade History Database)
 
