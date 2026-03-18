@@ -1,144 +1,324 @@
 # AutoPerp
 
-AutoPerp is a privacy-first perpetual trading protocol and application stack on Aleo.
+AutoPerp is a privacy-first perpetual trading protocol built on Aleo. It provides leveraged perpetual futures with on-chain settlement, a dedicated oracle system, an AI-powered agent authorization framework, and a full-featured web frontend.
 
-It supports two core operating modes:
+The protocol operates in two core modes:
 
-- Settlement mode (`autoperp_core_v5.aleo`): integrates with `test_usdcx_stablecoin.aleo` for real testnet settlement flows.
-- Private mode (`autoperp_core_private_v2.aleo`): private record-based trading state with USDCx-backed collateral settlement.
+- **Public Settlement Mode** via `autoperp_core_v5.aleo`, integrating with `test_usdcx_stablecoin.aleo` for real testnet USDCx settlement.
+- **Private Record Mode** via `autoperp_core_private_v2.aleo`, using encrypted Aleo records for all position, vault, and pool state with no public mappings.
 
-## Mode Snapshots
+---
 
-Private open_position - autoperp_core_private_v2.aleo
+## Table of Contents
 
-<a href="https://ibb.co/jkbVXXkK"><img src="https://i.ibb.co/5hGYHHhD/Private.jpg" alt="Private" border="0"></a>
+- [On-Chain Programs](#on-chain-programs)
+- [Oracle System](#oracle-system)
+- [Liquidity Pool Mechanics](#liquidity-pool-mechanics)
+- [Agent Authorization Framework](#agent-authorization-framework)
+- [Privacy Architecture](#privacy-architecture)
+- [Frontend Application](#frontend-application)
+- [System Architecture](#system-architecture)
+- [Technology Stack](#technology-stack)
+- [Frontend Contract Wiring](#frontend-contract-wiring)
+- [Build and Deploy](#build-and-deploy)
+- [Environment Variables](#environment-variables)
+- [Operational Notes](#operational-notes)
+- [License](#license)
 
-Public open_position - autoperp_core_v5.aleo
+---
 
-<a href="https://ibb.co/RpW122DN"><img src="https://i.ibb.co/wN1Tyyz7/Public.jpg" alt="Public" border="0"></a>
+## On-Chain Programs
 
-Update: ~~autoperp_core_private_v1.aleo~~ → `autoperp_core_private_v2.aleo` with new features:
-
-- USDCx-backed private collateral deposit/withdraw settlement
-- improved private approval flow (4-step guided transactions)
-- **Global Mode Toggle**: Synchronized Public/Private switching via the application header.
-- **Privacy-Aware UI**: Automatically hides Agent features and columns when in Private Mode.
-- **Agent Chat Refinements**: Colored trade indicators (LONG/SHORT) and clearer position tracking.
-
-## Product Summary
-
-AutoPerp provides:
-
-- Leveraged perpetual position lifecycle (open, manage, close)
-- LP liquidity deposit/withdraw and fee accounting
-- Agent authorization primitives for delegated actions
-- Oracle-driven market pricing and risk references
-- Web frontend with wallet-driven transaction execution
-
-## Technology Stack
-
-### Core
-
-- Aleo smart contracts written in Leo
-- React + TypeScript frontend
-- Vite build system
-- TailwindCSS UI system
-- Shield wallet integration (`@provablehq/aleo-wallet-adaptor-*`)
-- Supabase edge functions for AI chat and market data services
-
-### Frontend Libraries
-
-- React, React Router
-- Framer Motion
-- Sonner
-- Radix UI primitives
-
-### Backend/Services
-
-- Supabase Functions (`agent-chat`, `market-prices`)
-- Gemini API gateway (via Supabase function)
-
-## Program Inventory
+AutoPerp deploys five independent Aleo programs, each responsible for a distinct domain of the protocol.
 
 ### Active Programs
 
-- `autoperp_core_v5.aleo` (settlement-capable core)
-- `autoperp_core_private_v2.aleo` (private record-based core)
-- `autoperp_agent_v2.aleo` (AgentAuth and delegated execution receipts)
-- `autoperp_oracle.aleo` (price, mark, funding state)
-- `test_usdcx_stablecoin.aleo` (testnet USDCx token rails)
+| Program | Purpose |
+|---|---|
+| `autoperp_core_v5.aleo` | Public settlement core with USDCx collateral integration |
+| `autoperp_core_private_v2.aleo` | Fully private record-based trading core |
+| `autoperp_agent_v2.aleo` | Delegated agent authorization and execution receipts |
+| `autoperp_oracle.aleo` | Oracle price feeds, TWAP mark pricing, and funding rates |
+| `test_usdcx_stablecoin.aleo` | Testnet USDCx stablecoin token rails |
 
-### Deprecated/Compatibility
+### Deprecated
 
-- `autoperp_pool_v2.aleo` (legacy helper)
+| Program | Note |
+|---|---|
+| `autoperp_pool_v2.aleo` | Legacy pool helper, no longer used in active flows |
 
-## Privacy Model
+### Record Types
 
-### Trade History Encryption (Neon Database)
-To provide a fast trading history experience without compromising Aleo's fundamental privacy guarantees, AutoPerp uses a zero-exposure deterministic hashing architecture:
+The protocol defines nine distinct Aleo record types across its programs:
 
-* **✅ DB admin sees only hashes**: Wallet addresses are hashed via SHA-256 in the browser before ever touching the network (e.g., `aleo1...` becomes `e3b0c44...`).
-* **✅ Irreversible**: Because SHA-256 is mathematically irreversible, database administrators cannot reverse the hashes to find real Aleo addresses.
-* **✅ Anonymous Trade Data**: Trade amounts, leverage, and prices are visible in the database, but they cannot be linked to your wallet.
-* **✅ Decentralized Querying**: Users query their own data by having the frontend locally hash their connected Aleo address and asking the database to matching that specific hash string.
-* **✅ TX Hash Masking**: The transaction hash is stripped and sent as an empty string to prevent correlation attacks using block explorers.
-* **✅ Safe Connection Strings**: The Neon connection string stays strictly server-side inside the Supabase Edge Function to prevent unauthorized database access.
+| Record | Program | Description |
+|---|---|---|
+| `PositionRecord` | Core (both) | Encrypted perpetual position with market, direction, collateral, leverage, entry price, size, SL/TP |
+| `LiquidationAuth` | Core (both) | Authorization record issued to agent for liquidation monitoring |
+| `TraderVault` | Private core | Encrypted trader balance record (no public mapping exposure) |
+| `PoolState` | Private core | Encrypted pool accounting record (balance, deposits, shares, fees, OI, position count) |
+| `LPToken` | Core (both) | LP ownership record with pool ID, shares, and deposit amount |
+| `FeeReceipt` | Core (both) | Proof of fee claim with pool ID and claimed amount |
+| `ClaimableFeeEstimate` | Core (both) | Read-only estimate of claimable fees based on current pool state |
+| `AgentAuth` | Agent | Scoped, revocable delegation record with bitmask permissions and block-height expiry |
+| `ExecutionReceipt` | Agent | Proof that an agent executed an action on behalf of a trader |
+
+---
+
+## Oracle System
+
+`autoperp_oracle.aleo` implements a standalone on-chain oracle with admin-guarded price feeds, time-weighted average price (TWAP) mark pricing, and divergence-based funding rate calculation.
+
+### Mappings
+
+| Mapping | Type | Description |
+|---|---|---|
+| `prices` | `u8 => u64` | Latest oracle price per market (8-decimal precision) |
+| `price_timestamps` | `u8 => u32` | Block height of last price update per market |
+| `price_confidence` | `u8 => u64` | Confidence interval per market (8-decimal precision) |
+| `mark_prices` | `u8 => u64` | TWAP-adjusted mark price per market |
+| `funding_rates` | `u8 => u64` | Funding rate per market (rate x 1,000,000) |
+| `funding_direction` | `u8 => u8` | Funding direction flag: 0 = longs pay, 1 = shorts pay |
+| `oracle_admin` | `u8 => field` | Admin address hash for access control |
+
+### Transitions
+
+**`initialize(admin)`** -- One-time setup. Stores the BHP256 hash of the admin address. Rejects if already initialized.
+
+**`update_price(market_id, price, confidence)`** -- Updates the oracle price, timestamp (block height), and confidence interval for a given market. Caller must match the stored admin hash (verified in finalize via BHP256).
+
+**`update_mark_price(market_id)`** -- Computes a TWAP-blended mark price using the formula:
+
+```
+mark_price = (oracle_price * 7 + last_mark_price * 3) / 10
+```
+
+This 70/30 weighting smooths out short-term price fluctuations while remaining responsive to oracle updates.
+
+**`update_funding_rate(market_id)`** -- Calculates the funding rate based on mark-to-oracle price divergence:
+
+```
+rate = |mark_price - oracle_price| * 1,000,000 / oracle_price
+direction = mark_price > oracle_price ? 0 (longs pay) : 1 (shorts pay)
+```
+
+### Supported Markets
+
+| Market | ID |
+|---|---|
+| BTC-USD | `0u8` |
+| ETH-USD | `1u8` |
+| ALEO-USD | `2u8` |
+
+---
+
+## Liquidity Pool Mechanics
+
+Each market has its own isolated liquidity pool. Traders pay protocol fees when opening positions, and those fees accumulate in the corresponding pool. LPs earn a pro-rata share of accrued fees based on their LP token shares.
+
+### Pool State Tracking
+
+**Public core** (`autoperp_core_v5.aleo`) uses on-chain mappings:
+
+| Mapping | Description |
+|---|---|
+| `pool_balance` | Total USDCx balance per pool |
+| `pool_deposits` | Cumulative deposits per pool |
+| `pool_shares` | Total LP shares per pool |
+| `pool_fees` | Accrued trading fees per pool |
+| `open_interest` | Total notional open interest per pool |
+| `position_count` | Number of open positions per pool |
+
+**Private core** (`autoperp_core_private_v2.aleo`) stores all pool state inside encrypted `PoolState` records with no public mappings.
+
+### Deposit and Share Logic
+
+When a depositor adds `amount` USDCx liquidity:
+
+- An `LPToken` record is minted with `shares = amount` and `deposit_amount = amount`
+- Pool totals update: `pool_balance += amount`, `pool_deposits += amount`, `pool_shares += amount`
+
+Shares are a 1:1 accounting unit with the deposited amount at mint time.
+
+### Fee Generation
+
+On position open, a fee is charged from notional size:
+
+```
+notional = collateral x leverage
+fee = notional x 6 / 10000   (0.06%)
+```
+
+The fee is added to `pool_fees` for the selected market and deducted from the trader's collateral before the position is created.
+
+### Fee Claim Formula
+
+The estimated claimable fees for an LP are calculated as:
+
+```
+claimable = (your_shares x total_pool_fees) / total_pool_shares
+```
+
+This estimate fluctuates as new deposits change total shares, trading activity changes total fees, and other LPs claim their share.
+
+### Claim Behavior
+
+- Public mode: fee claims execute `transfer_public` to send USDCx directly to the claimer's wallet. The `claim_fees` transition verifies on-chain that the provided `total_pool_shares` and `total_pool_fees` match current mapping values before executing.
+- Private mode: fee claims operate on private `PoolState` records without public settlement.
+
+### Transitions
+
+| Transition | Description |
+|---|---|
+| `deposit_liquidity(pool_id, amount)` | Deposit USDCx and receive LP token |
+| `withdraw_liquidity(lp_token)` | Burn LP token and withdraw original deposit |
+| `claim_fees(lp_token, total_pool_shares, total_pool_fees)` | Claim pro-rata fees to wallet (public mode) |
+| `estimate_claimable_fees(lp_token, total_pool_shares, total_pool_fees)` | Read-only fee estimate |
+
+---
+
+## Agent Authorization Framework
+
+`autoperp_agent_v2.aleo` implements a scoped, revocable delegation system that allows an AI agent to execute specific actions on behalf of a trader.
+
+### Permission Model
+
+Permissions use a bitmask stored in the `AgentAuth` record:
+
+| Bit | Value | Permission |
+|---|---|---|
+| 0 | `1u8` | Liquidate |
+| 1 | `2u8` | Close position |
+| 2 | `4u8` | Adjust position |
+| All | `7u8` | All permissions |
+
+### Authorization Lifecycle
+
+1. **Grant**: Trader calls `grant_auth(agent, position_hash, permissions, max_slippage, expiry)`. An `AgentAuth` record is created and the authorization is marked active in the `active_auths` mapping. Expiry is validated against `block.height`.
+
+2. **Execute**: Agent calls `execute_agent_action(auth, action_type, execution_price)`. The finalize function verifies the authorization is active, not expired, and then deactivates it (single-use). An `ExecutionReceipt` record is produced and the agent's execution count is incremented.
+
+3. **Liquidate**: Agent calls `liquidate_position(auth, current_price, liquidation_price)`. Requires the liquidation permission bit. Same single-use deactivation pattern.
+
+4. **Revoke**: Trader calls `revoke_auth(auth)` to consume the record and mark the authorization inactive.
+
+### Slippage Protection
+
+The `max_slippage` field in `AgentAuth` records caps the maximum allowed slippage at 500 basis points (5%).
+
+### Frontend Agent UI
+
+- The Agent chat interface uses semantic color coding: green for LONG positions, red for SHORT positions.
+- The Portfolio positions table marks agent-initiated trades with a "Yes" indicator for clear differentiation from manual trades.
+- When the application is in Private Mode, the Agent tab is hidden from navigation and the Agent column is removed from the positions table. Navigating directly to the Agent page in Private Mode displays an informational unavailability notice.
+
+---
+
+## Privacy Architecture
+
+### On-Chain Privacy
+
+**Private Mode** (`autoperp_core_private_v2.aleo`):
+
+- Zero public mappings for position, vault, or pool state.
+- All state transitions consume and produce encrypted Aleo records: `TraderVault`, `PoolState`, `PositionRecord`, `LPToken`.
+- Collateral settlement calls `test_usdcx_stablecoin.aleo` transfer rails. The USDCx transfer leg itself is public (a limitation of the stablecoin contract), but all trading state remains private.
+
+**Public Settlement Mode** (`autoperp_core_v5.aleo`):
+
+- Position records are private (encrypted).
+- Vault balances, pool accounting, and settlement use public mappings for token compatibility.
+- USDCx transfers use `transfer_public` and `transfer_public_as_signer`.
+
+### Off-Chain Privacy (Trade History Database)
+
+AutoPerp uses a Neon PostgreSQL database via Supabase Edge Functions for fast trade history queries. The following privacy measures prevent exposure of sensitive data:
+
+| Measure | Implementation |
+|---|---|
+| Wallet address hashing | SHA-256 hash computed client-side before any network transmission |
+| Irreversibility | SHA-256 is a one-way function; database administrators cannot reverse hashes to wallet addresses |
+| Anonymous trade data | Trade amounts, leverage, and prices are stored but cannot be linked to specific wallets |
+| Deterministic querying | Users query their own data by hashing their connected address client-side and matching the hash |
+| Transaction hash omission | The transaction hash is stripped and sent as an empty string to prevent correlation via block explorers |
+| Server-side credentials | The Neon connection string is stored exclusively inside the Supabase Edge Function environment |
 
 ### Privacy-Aware UI
-To ensure users don't accidentally leak intent or use unsupported features:
-* **Agent Tab Omission**: The "Agent" navigation tab is hidden in the Header when in Private Mode.
-* **Agent Column Omission**: The "Agent" column in the Portfolio's Positions table is removed entirely in Private Mode.
-* **Contextual UI**: Trading parameters and settlement indicators change dynamically based on the active mode.
 
-### Private Mode
-`autoperp_core_private_v2.aleo` is a hybrid design:
-- No public mappings for position/state accounting
-- State transitions use private records (`TraderVault`, `PoolState`, `PositionRecord`, `LPToken`)
-- Collateral settlement calls `test_usdcx_stablecoin.aleo` public transfer rails
+The frontend adapts its interface based on the active trading mode:
 
-### Settlement Mode
+- The Agent navigation tab is hidden in Private Mode.
+- The Agent column in the Portfolio positions table is removed in Private Mode.
+- The Liquidity Pools page displays clear "Private" or "Public" badges next to each pool name and the deposit section heading.
+- Trading mode is selected globally via the Header toggle and synchronized across all pages using custom events and local storage.
 
-`autoperp_core_v5.aleo` is privacy-first but not fully private:
-- Private position records are used
-- Public settlement rails and public mappings still exist for token/accounting compatibility
+---
+
+## Frontend Application
+
+### Pages
+
+| Page | Description |
+|---|---|
+| Trade | Leveraged perpetual trading with market selection, order form, and position management |
+| Portfolio | Open positions, trade history, funding history, and PnL tracking |
+| Pool | Liquidity deposit/withdraw, fee claim, and pool statistics |
+| Agent | AI-powered trading assistant with Gemini API integration and on-chain execution |
+| Faucet | Testnet USDCx token distribution |
+| Docs | Protocol documentation and references |
+
+### UI Features
+
+- Dark theme with glassmorphism effects
+- Framer Motion animations on page and component transitions
+- Responsive layout with mobile navigation
+- Real-time price ticker with 24-hour change indicators
+- Global Private/Public mode toggle in the navigation header
+- Interactive pool cards with glow effects on selection
+- Color-coded trade indicators (green for LONG, red for SHORT)
+- Toast notifications with Aleo Explorer links for transaction confirmation
+
+---
 
 ## System Architecture
 
 ```mermaid
 flowchart TB
-    subgraph UserLayer[User Layer]
-        U1[Trader]
-        U2[Liquidity Provider]
-        U3[Operator]
+    subgraph UserLayer["User Layer"]
+        U1["Trader"]
+        U2["Liquidity Provider"]
+        U3["Operator"]
     end
 
-    subgraph Frontend[Web Frontend - React TypeScript Vite]
-        F1[Trade UI]
-        F2[Pool UI]
-        F3[Portfolio UI]
-        F4[Agent UI]
-        F5[Wallet + Global Mode Toggle]
-        F6[Transaction Hook]
-        F7[Private Record Parsers]
+    subgraph Frontend["Web Frontend"]
+        F1["Trade UI"]
+        F2["Pool UI"]
+        F3["Portfolio UI"]
+        F4["Agent UI"]
+        F5["Wallet + Global Mode Toggle"]
+        F6["Transaction Hook"]
+        F7["Private Record Parsers"]
     end
 
-    subgraph Wallet[Wallet Layer]
-        W1[Shield Wallet Adapter]
+    subgraph Wallet["Wallet Layer"]
+        W1["Shield Wallet Adapter"]
     end
 
-    subgraph Chain[Aleo Programs]
-        C1[autoperp_core_private_v2.aleo]
-        C2[autoperp_core_v5.aleo]
-        C3[autoperp_agent_v2.aleo]
-        C4[autoperp_oracle.aleo]
-        C5[test_usdcx_stablecoin.aleo]
+    subgraph Chain["Aleo Programs"]
+        C1["autoperp_core_private_v2.aleo"]
+        C2["autoperp_core_v5.aleo"]
+        C3["autoperp_agent_v2.aleo"]
+        C4["autoperp_oracle.aleo"]
+        C5["test_usdcx_stablecoin.aleo"]
     end
 
-    subgraph DataServices[Off-chain Services]
-        S1[Supabase Function - market-prices]
-        S2[Supabase Function - agent-chat]
-        S3[Gemini API]
-        S4[Explorer API]
+    subgraph DataServices["Off-chain Services"]
+        S1["Supabase: market-prices"]
+        S2["Supabase: agent-chat"]
+        S3["Gemini API"]
+        S4["Explorer API"]
+        S5["Supabase: trade-history"]
+        S6["Neon PostgreSQL"]
     end
 
     U1 --> F1
@@ -175,175 +355,60 @@ flowchart TB
     F2 --> S4
     F3 --> S4
 
+    F3 --> S5
+    S5 --> S6
+
     classDef private fill:#0f172a,stroke:#22c55e,stroke-width:1px,color:#e2e8f0
     classDef hybrid fill:#111827,stroke:#3b82f6,stroke-width:1px,color:#e2e8f0
     class C1 private
     class C2 hybrid
 ```
 
-## Contract Roles
+---
 
-### `autoperp_core_private_v2.aleo`
+## Technology Stack
 
-Private record-based perpetual core:
+### Core
 
-- Private vault state (`TraderVault`)
-- Private pool state (`PoolState`)
-- Private position lifecycle (`PositionRecord`)
-- Private LP accounting (`LPToken`, `FeeReceipt`, `ClaimableFeeEstimate`)
+- Aleo smart contracts written in Leo
+- React 18 with TypeScript
+- Vite build system
+- TailwindCSS styling
+- Shield wallet integration (`@provablehq/aleo-wallet-adaptor-react`, `@provablehq/aleo-wallet-adaptor-reactui`)
 
-### `autoperp_core_v5.aleo`
+### Frontend Libraries
 
-Settlement-capable core with USDCx integration:
+- React Router (client-side routing)
+- Framer Motion (animations)
+- Sonner (toast notifications)
+- Radix UI primitives (accessible dialog components)
+- Lucide React (icon system)
 
-- Collateral deposit/withdraw
-- Position open/close
-- LP deposit/withdraw
-- Fee accrual and claim
+### Backend Services
 
-### `autoperp_agent_v2.aleo`
+- Supabase Edge Functions: `agent-chat`, `market-prices`, `trade-history`
+- Gemini API (AI agent reasoning via Supabase function proxy)
+- Neon PostgreSQL (trade history persistence with SHA-256 privacy layer)
+- Aleo Explorer API (on-chain state queries and transaction verification)
 
-Delegated agent authorization model:
-
-- AgentAuth grant/revoke
-- Scoped permissions and expiry
-- Execution receipts
-
-### Agent UI Enhancements
-- **Visual Cues**: The Agent chat uses semantic color coding (Green for `LONG`, Red for `SHORT`) for improved readability.
-- **Position Tracking**: The Portfolio table explicitly marks Agent-initiated trades with a "Yes" indicator and a Bot icon for easy differentiation from manual trades.
-
-### `autoperp_oracle.aleo`
-
-Oracle references:
-
-- Price updates
-- Mark price updates
-- Funding rate updates
+---
 
 ## Frontend Contract Wiring
 
-Program IDs are hardcoded in code (no runtime env switching for core/agent/oracle/pool):
+Program IDs are hardcoded in the frontend source:
 
-- `PROGRAMS.CORE`: `autoperp_core_private_v2.aleo`
-- `PRIVATE_CORE_PROGRAM`: `autoperp_core_private_v2.aleo`
-- `PUBLIC_CORE_PROGRAM`: `autoperp_core_v5.aleo`
-- `PROGRAMS.AGENT`: `autoperp_agent_v2.aleo`
-- `PROGRAMS.ORACLE`: `autoperp_oracle.aleo`
-- `PROGRAMS.POOL`: `autoperp_pool_v2.aleo`
+| Constant | Program ID |
+|---|---|
+| `PROGRAMS.CORE` | `autoperp_core_private_v2.aleo` |
+| `PRIVATE_CORE_PROGRAM` | `autoperp_core_private_v2.aleo` |
+| `PUBLIC_CORE_PROGRAM` | `autoperp_core_v5.aleo` |
+| `PROGRAMS.AGENT` | `autoperp_agent_v2.aleo` |
+| `PROGRAMS.ORACLE` | `autoperp_oracle.aleo` |
+| `PROGRAMS.POOL` | `autoperp_pool_v2.aleo` |
 
-Trading mode is selected globally via the Header toggle (Public/Private switch), syncing state across all pages via custom events and local storage. This selection then resolves to the corresponding hardcoded core program at the hook level.
+Trading mode is selected globally via the Header toggle. The selection is persisted to local storage and broadcast via a custom `autoperp:mode-changed` window event. All pages listen for this event and resolve the appropriate core program at the hook level.
 
-## Liquidity Pools
-
-This section explains exactly how AutoPerp liquidity pools work, how LP fees are generated, and how `Estimated Claimable Fees` is calculated.
-
-### 1) What A Liquidity Pool Does
-
-- Each market has its own pool: BTC-USD (`0u8`), ETH-USD (`1u8`), ALEO-USD (`2u8`).
-- Traders pay protocol fees when opening positions.
-- Those fees accumulate in that market's `pool_fees`.
-- LPs earn a pro-rata share of `pool_fees` based on LP shares.
-
-In settlement/public core (`autoperp_core_v5.aleo`), LP fee claims are paid directly to wallet using `transfer_public`.
-
-### 2) Deposit And Shares Logic
-
-When a depositor adds `amount` USDCx liquidity:
-
-- LP token `shares = amount`
-- LP token `deposit_amount = amount`
-- Pool totals update:
-    - `pool_balance += amount`
-    - `pool_deposits += amount`
-    - `pool_shares += amount`
-
-So shares are a 1:1 accounting unit with deposited amount at mint time.
-
-### 3) How Trading Fees Are Generated
-
-On position open, fee is charged from notional size:
-
-$$
-	ext{notional} = \text{collateral} \times \text{leverage}
-$$
-
-$$
-	ext{fee} = \text{notional} \times 0.06\% = \text{notional} \times \frac{6}{10000}
-$$
-
-Equivalent integer formula used on-chain:
-
-$$
-	ext{fee} = \frac{\text{size} \times 6}{10000}
-$$
-
-That fee is added to `pool_fees` for the selected market.
-
-### 4) Estimated Claimable Fees Formula
-
-UI uses:
-
-$$
-	ext{Estimated Claimable Fees} = \frac{\text{your shares} \times \text{total pool fees}}{\text{total pool shares}}
-$$
-
-This is an estimate and can move as:
-
-- new LP deposits change `total pool shares`
-- more trading activity changes `total pool fees`
-- other LPs claim fees (reducing `total pool fees`)
-
-### 5) Worked Example (1000 USDCx Depositor)
-
-Assume you deposit `1000` USDCx into BTC pool.
-
-Case A:
-
-- Total pool shares after your deposit = `50,000`
-- Your shares = `1,000`
-- Accrued pool fees = `300` USDCx
-
-Then:
-
-$$
-	ext{your claim estimate} = \frac{1000 \times 300}{50000} = 6 \text{ USDCx}
-$$
-
-Case B (dilution after new deposits):
-
-- Your shares remain `1,000`
-- Total pool shares grow to `100,000`
-- Pool fees remain `300`
-
-Then:
-
-$$
-	ext{your claim estimate} = \frac{1000 \times 300}{100000} = 3 \text{ USDCx}
-$$
-
-Your absolute shares did not change, but your percentage of the pool decreased.
-
-### 6) Public Claim Behavior
-
-- Fee claim to wallet is public-mode only.
-- Claim transaction uses LP token input + current `pool_shares` + current `pool_fees`.
-- On success, USDCx is transferred to the claimer wallet and `pool_fees` decreases by claimed amount.
-
-### 7) Why You May See Estimate But Cannot Claim Public
-
-If you are viewing private LP state (or deposited in private mode), UI can show estimated fees for that state, but public claim requires a public LP token record.
-
-Use Pool mode switch:
-
-- `Public` mode: public deposit/public LP shares/public fee claim to wallet
-- `Private` mode: private LP state path (no public wallet claim flow)
-
-### 8) Lock Notice
-
-Pool UI displays: `Deposited liquidity is locked for 2 years` as product policy text.
-
-## Build and Deploy
+---
 
 ## Build and Deploy
 
@@ -360,23 +425,34 @@ cd ../autoperp_core_private && leo build
 
 ```bash
 npm install
-npm run dev
-npm run build
+npm run dev       # Development server
+npm run build     # Production bundle
 ```
+
+---
 
 ## Environment Variables
 
-- `VITE_SUPABASE_PROJECT_ID`
-- `VITE_SUPABASE_URL`
-- `VITE_SUPABASE_PUBLISHABLE_KEY`
-- `GEMINI_API_KEY` (for Supabase `agent-chat` function)
+| Variable | Scope | Description |
+|---|---|---|
+| `VITE_SUPABASE_PROJECT_ID` | Frontend | Supabase project identifier |
+| `VITE_SUPABASE_URL` | Frontend | Supabase API URL |
+| `VITE_SUPABASE_PUBLISHABLE_KEY` | Frontend | Supabase publishable API key |
+| `GEMINI_API_KEY` | Supabase secret | Gemini API key for the `agent-chat` edge function |
+| `NEON_DATABASE_URL` | Supabase secret | Neon PostgreSQL connection string for the `trade-history` edge function |
 
-## License
-
-MIT License
+---
 
 ## Operational Notes
 
-- Private mode keeps position/state records private while collateral settlement legs use USDCx public rails.
-- Settlement mode prioritizes token settlement compatibility with USDCx rails.
-- Ensure frontend program IDs match the deployed contract IDs before running user flows.
+- Private Mode keeps all position, vault, and pool state in encrypted Aleo records. The only public leg is the USDCx token transfer itself.
+- Public Settlement Mode uses public mappings for vault and pool accounting to maintain compatibility with USDCx transfer rails.
+- The Agent system operates exclusively in Public Mode. When Private Mode is active, Agent features are hidden from the UI.
+- Ensure frontend program IDs match the deployed contract IDs on the target network before running user flows.
+- All prices use 8-decimal precision (1 USD = 100,000,000). All USDCx amounts use 6-decimal precision (1 USDCx = 1,000,000 micro-units).
+
+---
+
+## License
+
+MIT
