@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { supabase } from "@/integrations/supabase/client";
 
 export interface MarketPrice {
@@ -217,7 +217,10 @@ const usePrices = () => {
     return () => clearInterval(interval);
   }, [fetchPrices]);
 
-  const getPrice = (symbol: string) => prices.find((p) => p.symbol === symbol);
+  const getPrice = useCallback(
+    (symbol: string) => prices.find((p) => p.symbol === symbol),
+    [prices],
+  );
 
   return { prices, loading, getPrice, formatPrice };
 };

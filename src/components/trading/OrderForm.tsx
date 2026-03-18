@@ -4,7 +4,7 @@ import usePrices, { formatPrice } from "@/hooks/usePrices";
 import useUsdcxBalance from "@/hooks/useUsdcxBalance";
 import { useWallet } from "@provablehq/aleo-wallet-adaptor-react";
 import { useAleoTransaction, MARKET_IDS, toUsdcx, toPrice } from "@/hooks/useAleoTransaction";
-import { addOrder, addTradeEvent, newId } from "@/lib/portfolioStore";
+import { addOrder, addTradeEventPersistent, newId } from "@/lib/portfolioStore";
 import {
   LEGACY_SETTLEMENT_MESSAGE,
   REAL_SETTLEMENT_AVAILABLE,
@@ -560,7 +560,7 @@ const OrderForm = ({ market, coreProgram, isPrivateMode }: OrderFormProps) => {
         executedTxId: result.transactionId,
       }, address);
 
-      addTradeEvent({
+      addTradeEventPersistent({
         id: newId("trade"),
         type: "OPEN",
         market,

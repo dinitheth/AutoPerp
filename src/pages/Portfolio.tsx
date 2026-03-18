@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Header from "@/components/layout/Header";
 import WalletGate from "@/components/wallet/WalletGate";
 import useUsdcxBalance from "@/hooks/useUsdcxBalance";
@@ -14,6 +14,7 @@ import {
   loadEquity,
   loadOrders,
   loadTrades,
+  loadTradesRemote,
   type PortfolioEquityPoint,
   type PortfolioOrder,
   type PortfolioTradeEvent,
@@ -358,6 +359,10 @@ const Portfolio = () => {
   const { usdcxBalance, vaultBalance, creditsBalance } = useUsdcxBalance();
   const { prices, getPrice } = usePrices();
 
+  // Stable ref so fetchPositions doesn't re-create on every price tick
+  const pricesRef = useRef(prices);
+  pricesRef.current = prices;
+
   const walletUsdcx = n2(usdcxBalance);
   const lockedVault = n2(vaultBalance);
   const credits = n2(creditsBalance);
@@ -473,7 +478,8 @@ const Portfolio = () => {
         });
 
         return unique.map((p) => {
-          const liveRaw = getPrice(p.market)?.price ?? 0;
+          const currentPrices = pricesRef.current;
+          const liveRaw = currentPrices.find((x) => x.symbol === p.market)?.price ?? 0;
           const live = Number.isFinite(liveRaw) && liveRaw > 0 ? liveRaw : p.entryPrice;
           const size = p.size;
           const pnl =
@@ -499,7 +505,7 @@ const Portfolio = () => {
       let all: unknown[] = [];
       try {
         // Fast path: avoid private decrypt flow unless we need it.
-        all = await fetchWithTimeout(false, 5000);
+        all = (await fetchWithTimeout(false, 5000)) as unknown[];
       } catch {
         all = [];
       }
@@ -528,7 +534,9 @@ const Portfolio = () => {
     } finally {
       setLoadingPositions(false);
     }
-  }, [connected, requestRecords, getPrice, address, disconnect, connect]);
+  // pricesRef used instead of getPrice — keeps fetchPositions stable
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [connected, requestRecords, address, disconnect, connect]);
 
   useEffect(() => {
     const onOrders = () => setOrders(loadOrders(address));
@@ -549,6 +557,11 @@ const Portfolio = () => {
     setTrades(loadTrades(address));
     setEquityPoints(loadEquity(address));
     setPositions(loadCachedPositions(address));
+
+    // Also fetch trades from Neon (async merge, localStorage is the initial fast path)
+    loadTradesRemote(address).then((merged) => {
+      setTrades(merged);
+    }).catch(() => { /* localStorage fallback already set above */ });
   }, [address]);
 
   useEffect(() => {
@@ -576,11 +589,13 @@ const Portfolio = () => {
 
   // Keep mark + unrealized PnL live as the price feed updates (without waiting for record re-sync).
   useEffect(() => {
-    if (positions.length === 0) return;
-    setPositions((prev) =>
-      prev.map((p) => {
+    setPositions((prev) => {
+      if (prev.length === 0) return prev;
+      let changed = false;
+      const next = prev.map((p) => {
         const live = prices.find((x) => x.symbol === p.market)?.price ?? 0;
-        if (!live || live <= 0) return p;
+        if (!live || live <= 0 || live === p.mark) return p;
+        changed = true;
         const size = p.sizeUsd;
         const pnl =
           p.direction === "long"
@@ -588,9 +603,11 @@ const Portfolio = () => {
             : size * ((p.entry - live) / Math.max(1e-9, p.entry));
         const roe = p.collateralUsd > 0 ? (pnl / p.collateralUsd) * 100 : 0;
         return { ...p, mark: live, pnlUsd: pnl, roePct: roe };
-      }),
-    );
-  }, [prices, positions.length]);
+      });
+      return changed ? next : prev; // preserve reference if nothing changed
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [prices]);
 
   useEffect(() => {
     if (!connected) return;
@@ -630,7 +647,6 @@ const Portfolio = () => {
   const tabs: { key: TabKey; label: string }[] = [
     { key: "balances", label: "Balances" },
     { key: "positions", label: "Positions" },
-    { key: "open_orders", label: "Open Orders" },
     { key: "trade_history", label: "Trade History" },
     { key: "funding_history", label: "Funding History" },
     { key: "order_history", label: "Order History" },
@@ -759,8 +775,8 @@ const Portfolio = () => {
 
               <div
                 className={cn(
-                  "mt-4 border border-border/70 bg-background rounded-xl overflow-hidden",
-                  tab === "balances" ? "w-full md:w-[560px]" : "w-full",
+                  "mt-4 border border-border/70 bg-background rounded-xl",
+                  tab === "balances" ? "w-full md:w-[560px] overflow-hidden" : "w-full max-h-[400px] overflow-auto",
                 )}
               >
                 {tab === "balances" && (
@@ -868,48 +884,7 @@ const Portfolio = () => {
                   </table>
                 )}
 
-                {tab === "open_orders" && (
-                  <table className="w-full text-xs">
-                    <thead className="border-b border-border/70 bg-card/20">
-                      <tr className="text-[10px] uppercase tracking-wider text-muted-foreground">
-                        <th className="px-4 py-3 text-left font-medium">Market</th>
-                        <th className="px-4 py-3 text-left font-medium">Side</th>
-                        <th className="px-4 py-3 text-left font-medium">Type</th>
-                        <th className="px-4 py-3 text-right font-medium">Collateral</th>
-                        <th className="px-4 py-3 text-right font-medium">Lev</th>
-                        <th className="px-4 py-3 text-right font-medium">Limit</th>
-                        <th className="px-4 py-3 text-right font-medium">Status</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-border/30">
-                      {orders.filter((o) => o.status === "open").length === 0 && (
-                        <tr>
-                          <td colSpan={7} className="px-4 py-10 text-center text-muted-foreground">
-                            No open orders.
-                          </td>
-                        </tr>
-                      )}
-                      {orders
-                        .filter((o) => o.status === "open")
-                        .map((o) => (
-                          <tr key={o.id}>
-                            <td className="px-4 py-3 text-foreground">{o.market}</td>
-                            <td className="px-4 py-3 text-foreground uppercase">{o.side}</td>
-                            <td className="px-4 py-3 text-foreground uppercase">{o.kind}</td>
-                            <td className="px-4 py-3 text-right font-mono text-foreground">
-                              {formatNum(o.collateralUsdcx)}
-                            </td>
-                            <td className="px-4 py-3 text-right font-mono text-foreground">{o.leverage}x</td>
-                            <td className="px-4 py-3 text-right font-mono text-foreground">
-                              {o.kind === "limit" && o.limitPrice ? formatUsd(o.limitPrice) : "--"}
-                            </td>
-                            <td className="px-4 py-3 text-right text-muted-foreground">{o.status}</td>
-                          </tr>
-                        ))}
-                    </tbody>
-                  </table>
-                )}
-
+ 
                 {tab === "trade_history" && (
                   <table className="w-full text-xs">
                     <thead className="border-b border-border/70 bg-card/20">

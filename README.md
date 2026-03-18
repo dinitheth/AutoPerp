@@ -21,7 +21,9 @@ Update: ~~autoperp_core_private_v1.aleo~~ → `autoperp_core_private_v2.aleo` wi
 
 - USDCx-backed private collateral deposit/withdraw settlement
 - improved private approval flow (4-step guided transactions)
-- runtime mode support for Public/Private trading
+- **Global Mode Toggle**: Synchronized Public/Private switching via the application header.
+- **Privacy-Aware UI**: Automatically hides Agent features and columns when in Private Mode.
+- **Agent Chat Refinements**: Colored trade indicators (LONG/SHORT) and clearer position tracking.
 
 ## Product Summary
 
@@ -72,10 +74,24 @@ AutoPerp provides:
 
 ## Privacy Model
 
+### Trade History Encryption (Neon Database)
+To provide a fast trading history experience without compromising Aleo's fundamental privacy guarantees, AutoPerp uses a zero-exposure deterministic hashing architecture:
+
+* **✅ DB admin sees only hashes**: Wallet addresses are hashed via SHA-256 in the browser before ever touching the network (e.g., `aleo1...` becomes `e3b0c44...`).
+* **✅ Irreversible**: Because SHA-256 is mathematically irreversible, database administrators cannot reverse the hashes to find real Aleo addresses.
+* **✅ Anonymous Trade Data**: Trade amounts, leverage, and prices are visible in the database, but they cannot be linked to your wallet.
+* **✅ Decentralized Querying**: Users query their own data by having the frontend locally hash their connected Aleo address and asking the database to matching that specific hash string.
+* **✅ TX Hash Masking**: The transaction hash is stripped and sent as an empty string to prevent correlation attacks using block explorers.
+* **✅ Safe Connection Strings**: The Neon connection string stays strictly server-side inside the Supabase Edge Function to prevent unauthorized database access.
+
+### Privacy-Aware UI
+To ensure users don't accidentally leak intent or use unsupported features:
+* **Agent Tab Omission**: The "Agent" navigation tab is hidden in the Header when in Private Mode.
+* **Agent Column Omission**: The "Agent" column in the Portfolio's Positions table is removed entirely in Private Mode.
+* **Contextual UI**: Trading parameters and settlement indicators change dynamically based on the active mode.
+
 ### Private Mode
-
 `autoperp_core_private_v2.aleo` is a hybrid design:
-
 - No public mappings for position/state accounting
 - State transitions use private records (`TraderVault`, `PoolState`, `PositionRecord`, `LPToken`)
 - Collateral settlement calls `test_usdcx_stablecoin.aleo` public transfer rails
@@ -83,7 +99,6 @@ AutoPerp provides:
 ### Settlement Mode
 
 `autoperp_core_v5.aleo` is privacy-first but not fully private:
-
 - Private position records are used
 - Public settlement rails and public mappings still exist for token/accounting compatibility
 
@@ -102,7 +117,7 @@ flowchart TB
         F2[Pool UI]
         F3[Portfolio UI]
         F4[Agent UI]
-        F5[Wallet Provider]
+        F5[Wallet + Global Mode Toggle]
         F6[Transaction Hook]
         F7[Private Record Parsers]
     end
@@ -194,6 +209,10 @@ Delegated agent authorization model:
 - Scoped permissions and expiry
 - Execution receipts
 
+### Agent UI Enhancements
+- **Visual Cues**: The Agent chat uses semantic color coding (Green for `LONG`, Red for `SHORT`) for improved readability.
+- **Position Tracking**: The Portfolio table explicitly marks Agent-initiated trades with a "Yes" indicator and a Bot icon for easy differentiation from manual trades.
+
 ### `autoperp_oracle.aleo`
 
 Oracle references:
@@ -213,7 +232,7 @@ Program IDs are hardcoded in code (no runtime env switching for core/agent/oracl
 - `PROGRAMS.ORACLE`: `autoperp_oracle.aleo`
 - `PROGRAMS.POOL`: `autoperp_pool_v2.aleo`
 
-Trading mode is selected in-app (Public/Private switch), and resolves to the corresponding hardcoded core program.
+Trading mode is selected globally via the Header toggle (Public/Private switch), syncing state across all pages via custom events and local storage. This selection then resolves to the corresponding hardcoded core program at the hook level.
 
 ## Liquidity Pools
 
@@ -354,7 +373,7 @@ npm run build
 
 ## License
 
-MIT
+MIT License
 
 ## Operational Notes
 

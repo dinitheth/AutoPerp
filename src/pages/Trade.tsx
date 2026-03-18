@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import Header from "@/components/layout/Header";
 import WalletGate from "@/components/wallet/WalletGate";
@@ -12,7 +12,7 @@ import {
   type TradingMode,
   getStoredTradingMode,
   resolveCoreProgram,
-  setStoredTradingMode,
+  TRADING_MODE_STORAGE_KEY,
 } from "@/lib/protocol";
 
 const Trade = () => {
@@ -25,11 +25,29 @@ const Trade = () => {
   const handleModeChange = (mode: TradingMode) => {
     const switchedToPrivate = mode === "private" && tradingMode !== "private";
     setTradingMode(mode);
-    setStoredTradingMode(mode);
     if (switchedToPrivate) {
       setShowPrivateInfo(true);
     }
   };
+
+  useEffect(() => {
+    const handleModeEvent = (e: CustomEvent<TradingMode>) => {
+      handleModeChange(e.detail);
+    };
+    window.addEventListener("autoperp:mode-changed", handleModeEvent as EventListener);
+    
+    const handleStorageEvent = (e: StorageEvent) => {
+      if (e.key === TRADING_MODE_STORAGE_KEY && (e.newValue === "public" || e.newValue === "private")) {
+        handleModeChange(e.newValue as TradingMode);
+      }
+    };
+    window.addEventListener("storage", handleStorageEvent);
+
+    return () => {
+      window.removeEventListener("autoperp:mode-changed", handleModeEvent as EventListener);
+      window.removeEventListener("storage", handleStorageEvent);
+    };
+  }, [tradingMode]);
 
   return (
     <WalletGate pageName="Trading">
@@ -70,27 +88,9 @@ const Trade = () => {
       <main className="pt-14">
         <PriceBar selectedMarket={selectedMarket} onSelectMarket={setSelectedMarket} />
 
-        <div className="border-b border-border px-4 py-2">
+        <div className="border-b border-border px-4 py-2 hidden md:block">
           <div className="container flex items-center justify-end gap-2">
-            <span className="text-[10px] text-muted-foreground uppercase tracking-wider">Mode</span>
-            <div className="inline-flex rounded-lg border border-border bg-card p-1">
-              <button
-                onClick={() => handleModeChange("private")}
-                className={`h-7 px-3 text-xs rounded-md transition-colors ${
-                  isPrivateMode ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                Private
-              </button>
-              <button
-                onClick={() => handleModeChange("public")}
-                className={`h-7 px-3 text-xs rounded-md transition-colors ${
-                  !isPrivateMode ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                Public
-              </button>
-            </div>
+            {/* Mode toggle moved to global header */}
           </div>
         </div>
 

@@ -9,21 +9,22 @@ interface AgentMessageContentProps {
   onSelectMarket?: (market: string) => void;
 }
 
-/** Renders market pair names as clickable buttons in agent text */
-function renderWithMarketButtons(
+/** Renders market pair names as clickable buttons and colors LONG/SHORT in agent text */
+function renderEnhancedText(
   text: string,
   onSelectMarket?: (market: string) => void
 ) {
-  if (!onSelectMarket) return text;
+  if (!text) return text;
 
-  // Split text by market pair mentions
-  const regex = new RegExp(`(${MARKET_PAIRS.join("|")})`, "g");
+  // Match market pairs OR the exact words LONG/SHORT
+  const regex = new RegExp(`(${MARKET_PAIRS.join("|")}|\\bLONG\\b|\\bSHORT\\b)`, "g");
   const parts = text.split(regex);
 
   if (parts.length === 1) return text;
 
   return parts.map((part, i) => {
     if (MARKET_PAIRS.includes(part)) {
+      if (!onSelectMarket) return <span key={i}>{part}</span>;
       return (
         <button
           key={i}
@@ -32,6 +33,20 @@ function renderWithMarketButtons(
         >
           {part}
         </button>
+      );
+    }
+    if (part === "LONG") {
+      return (
+        <span key={i} className="text-success font-bold tracking-wide">
+          {part}
+        </span>
+      );
+    }
+    if (part === "SHORT") {
+      return (
+        <span key={i} className="text-destructive font-bold tracking-wide">
+          {part}
+        </span>
       );
     }
     return <span key={i}>{part}</span>;
@@ -50,11 +65,11 @@ const AgentMessageContent = ({ content, isUser, onSelectMarket }: AgentMessageCo
           p: ({ children }) => (
             <p className="mb-2 last:mb-0">
               {typeof children === "string"
-                ? renderWithMarketButtons(children, onSelectMarket)
+                ? renderEnhancedText(children, onSelectMarket)
                 : Array.isArray(children)
                 ? children.map((child, i) =>
                     typeof child === "string"
-                      ? renderWithMarketButtons(child, onSelectMarket)
+                      ? renderEnhancedText(child, onSelectMarket)
                       : child
                   )
                 : children}
@@ -68,11 +83,11 @@ const AgentMessageContent = ({ content, isUser, onSelectMarket }: AgentMessageCo
           li: ({ children }) => (
             <li className="text-sm">
               {typeof children === "string"
-                ? renderWithMarketButtons(children, onSelectMarket)
+                ? renderEnhancedText(children, onSelectMarket)
                 : Array.isArray(children)
                 ? children.map((child, i) =>
                     typeof child === "string"
-                      ? renderWithMarketButtons(child, onSelectMarket)
+                      ? renderEnhancedText(child, onSelectMarket)
                       : child
                   )
                 : children}

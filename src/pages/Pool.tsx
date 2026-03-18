@@ -15,7 +15,7 @@ import {
   REAL_SETTLEMENT_AVAILABLE,
   PUBLIC_CORE_PROGRAM,
   resolveCoreProgram,
-  setStoredTradingMode,
+  TRADING_MODE_STORAGE_KEY,
 } from "@/lib/protocol";
 import { findPoolStateRecord } from "@/lib/privateCoreRecords";
 import { isProgramNotAllowedError, requestProgramRecords } from "@/lib/walletRecords";
@@ -134,6 +134,25 @@ const Pool = () => {
   const { execute, loading: txLoading } = useAleoTransaction();
   const isPrivateMode = tradingMode === "private";
   const coreProgram = resolveCoreProgram(tradingMode);
+
+  useEffect(() => {
+    const handleModeEvent = (e: CustomEvent<TradingMode>) => {
+      setTradingMode(e.detail);
+    };
+    window.addEventListener("autoperp:mode-changed", handleModeEvent as EventListener);
+    
+    const handleStorageEvent = (e: StorageEvent) => {
+      if (e.key === TRADING_MODE_STORAGE_KEY && (e.newValue === "public" || e.newValue === "private")) {
+        setTradingMode(e.newValue as TradingMode);
+      }
+    };
+    window.addEventListener("storage", handleStorageEvent);
+
+    return () => {
+      window.removeEventListener("autoperp:mode-changed", handleModeEvent as EventListener);
+      window.removeEventListener("storage", handleStorageEvent);
+    };
+  }, []);
 
   const refreshPoolBalances = useCallback(async () => {
     if (!REAL_SETTLEMENT_AVAILABLE) return;
@@ -566,40 +585,6 @@ const Pool = () => {
                 </div>
               )}
 
-              <div className="mb-6 flex items-center justify-end gap-2">
-                <span className="text-[10px] text-muted-foreground uppercase tracking-wider">Mode</span>
-                <div className="inline-flex rounded-lg border border-border bg-card p-1">
-                  <button
-                    onClick={() => {
-                      setTradingMode("private");
-                      setStoredTradingMode("private");
-                    }}
-                    className={cn(
-                      "h-7 px-3 text-xs rounded-md transition-colors",
-                      isPrivateMode
-                        ? "bg-primary text-primary-foreground"
-                        : "text-muted-foreground hover:text-foreground",
-                    )}
-                  >
-                    Private
-                  </button>
-                  <button
-                    onClick={() => {
-                      setTradingMode("public");
-                      setStoredTradingMode("public");
-                    }}
-                    className={cn(
-                      "h-7 px-3 text-xs rounded-md transition-colors",
-                      !isPrivateMode
-                        ? "bg-primary text-primary-foreground"
-                        : "text-muted-foreground hover:text-foreground",
-                    )}
-                  >
-                    Public
-                  </button>
-                </div>
-              </div>
-
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
                 {[
                   {
@@ -649,7 +634,9 @@ const Pool = () => {
                       <div className="flex items-center gap-2">
                         <Lock className="h-3 w-3 text-muted-foreground" />
                         <div className="flex flex-col">
-                          <span className="text-sm font-medium text-foreground">{pool.name}</span>
+                          <span className="text-sm font-medium text-foreground">
+                            {pool.name} {isPrivateMode ? <span className="text-[10px] ml-1 px-1.5 py-0.5 rounded bg-card border border-border text-muted-foreground">Private</span> : <span className="text-[10px] ml-1 px-1.5 py-0.5 rounded bg-primary/20 border border-primary/30 text-primary">Public</span>}
+                          </span>
                           <span className="text-[10px] text-muted-foreground font-mono">
                             Liquidity:{" "}
                             <span className="text-foreground">
@@ -671,8 +658,13 @@ const Pool = () => {
               </div>
 
               <div className="p-6 rounded-xl border border-border bg-card">
-                <h3 className="text-sm font-semibold text-foreground mb-4">
+                <h3 className="text-sm font-semibold text-foreground flex items-center gap-2 mb-4">
                   Add Liquidity to {pools[selectedPool].name}
+                  {isPrivateMode ? (
+                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-card border border-border text-muted-foreground">Private</span>
+                  ) : (
+                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-primary/20 border border-primary/30 text-primary">Public</span>
+                  )}
                 </h3>
 
                 {connected && usdcxBalance && (

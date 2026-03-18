@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { cn } from "@/lib/utils";
 import { Lock, Bot, Loader2 } from "lucide-react";
 import { toast } from "sonner";
@@ -12,7 +12,7 @@ import {
 import usePrices from "@/hooks/usePrices";
 import { LEGACY_SETTLEMENT_MESSAGE, REAL_SETTLEMENT_AVAILABLE } from "@/lib/protocol";
 import { PRIVATE_CORE_PROGRAM, PUBLIC_CORE_PROGRAM } from "@/lib/protocol";
-import { addTradeEvent, newId } from "@/lib/portfolioStore";
+import { addTradeEventPersistent, newId } from "@/lib/portfolioStore";
 import {
   getPositionRecordOwner,
   isLikelyPositionRecord,
@@ -217,9 +217,17 @@ const PositionsList = ({ coreProgram, isPrivateMode }: PositionsListProps) => {
   const { prices, getPrice } = usePrices();
   const closeFailureCountRef = useRef<Record<string, number>>({});
   const closedPositionIdsRef = useRef<Set<string>>(loadClosedPositionIds(address));
-  const positionRecordProgramCandidates = isPrivateMode
-    ? [coreProgram, PRIVATE_CORE_PROGRAM]
-    : [coreProgram, PUBLIC_CORE_PROGRAM];
+  const positionRecordProgramCandidates = useMemo(
+    () =>
+      isPrivateMode
+        ? [coreProgram, PRIVATE_CORE_PROGRAM]
+        : [coreProgram, PUBLIC_CORE_PROGRAM],
+    [coreProgram, isPrivateMode],
+  );
+
+  // Stable ref so fetchPositions doesn't re-create on every price tick
+  const pricesRef = useRef(prices);
+  pricesRef.current = prices;
 
   const fetchPositions = useCallback(async () => {
     if (!connected) {
@@ -275,7 +283,8 @@ const PositionsList = ({ coreProgram, isPrivateMode }: PositionsListProps) => {
 
       // Update mark prices and PnL
       const updated = deduped.map((pos) => {
-        const live = getPrice(pos.market)?.price;
+        const currentPrices = pricesRef.current;
+        const live = currentPrices.find((p) => p.symbol === pos.market)?.price;
         const markPrice = Number.isFinite(live) && (live ?? 0) > 0 ? (live as number) : pos.entryPrice;
         let pnl: number;
         if (pos.direction === "long") {
@@ -302,7 +311,9 @@ const PositionsList = ({ coreProgram, isPrivateMode }: PositionsListProps) => {
     } finally {
       setLoadingRecords(false);
     }
-  }, [connected, requestRecords, getPrice, address, connect, disconnect, positionRecordProgramCandidates]);
+  // pricesRef used instead of getPrice — keeps fetchPositions stable
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [connected, requestRecords, address, connect, disconnect, positionRecordProgramCandidates]);
 
   useEffect(() => {
     closedPositionIdsRef.current = loadClosedPositionIds(address);
@@ -323,21 +334,25 @@ const PositionsList = ({ coreProgram, isPrivateMode }: PositionsListProps) => {
 
   // Keep mark price + PnL live as the price feed updates (without waiting for record re-sync).
   useEffect(() => {
-    if (positions.length === 0) return;
-    setPositions((prev) =>
-      prev.map((pos) => {
+    setPositions((prev) => {
+      if (prev.length === 0) return prev;
+      let changed = false;
+      const next = prev.map((pos) => {
         const live = prices.find((p) => p.symbol === pos.market)?.price ?? 0;
         const markPrice = Number.isFinite(live) && live > 0 ? live : pos.markPrice > 0 ? pos.markPrice : pos.entryPrice;
-        if (!markPrice || markPrice <= 0) return pos;
+        if (!markPrice || markPrice <= 0 || markPrice === pos.markPrice) return pos;
+        changed = true;
         const pnl =
           pos.direction === "long"
             ? pos.size * ((markPrice - pos.entryPrice) / pos.entryPrice)
             : pos.size * ((pos.entryPrice - markPrice) / pos.entryPrice);
         const pnlPercent = pos.collateral > 0 ? (pnl / pos.collateral) * 100 : 0;
         return { ...pos, markPrice, pnl, pnlPercent };
-      }),
-    );
-  }, [prices, positions.length]);
+      });
+      return changed ? next : prev; // preserve reference if nothing changed
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [prices]);
 
     const markPositionClosedLocally = useCallback((pos: PositionRecord, recordInput?: string | null) => {
       const keys = closedPositionIdsRef.current;
@@ -739,7 +754,7 @@ const PositionsList = ({ coreProgram, isPrivateMode }: PositionsListProps) => {
         pos.direction === "long"
           ? notional * ((executedClosePrice - pos.entryPrice) / pos.entryPrice)
           : notional * ((pos.entryPrice - executedClosePrice) / pos.entryPrice);
-      addTradeEvent({
+      addTradeEventPersistent({
         id: newId("trade"),
         type: "CLOSE",
         market: pos.market,
@@ -839,7 +854,7 @@ const PositionsList = ({ coreProgram, isPrivateMode }: PositionsListProps) => {
                     <th className="text-left px-4 py-2.5 font-medium">Entry</th>
                     <th className="text-left px-4 py-2.5 font-medium">Mark</th>
                     <th className="text-left px-4 py-2.5 font-medium">PnL</th>
-                    <th className="text-left px-4 py-2.5 font-medium">Agent</th>
+                    {!isPrivateMode && <th className="text-left px-4 py-2.5 font-medium">Agent</th>}
                     <th className="text-right px-4 py-2.5 font-medium">Actions</th>
                   </tr>
                 </thead>
@@ -880,16 +895,18 @@ const PositionsList = ({ coreProgram, isPrivateMode }: PositionsListProps) => {
                           {pos.pnl >= 0 ? "+" : ""}${pos.pnl.toFixed(2)} ({pos.pnlPercent.toFixed(2)}%)
                         </span>
                       </td>
-                      <td className="px-4 py-3">
-                        {pos.agentActive ? (
-                          <span className="inline-flex items-center gap-1 text-[10px] text-primary">
-                            <Bot className="h-3 w-3" />
-                            Active
-                          </span>
-                        ) : (
-                          <span className="text-[10px] text-muted-foreground">Off</span>
-                        )}
-                      </td>
+                      {!isPrivateMode && (
+                        <td className="px-4 py-3">
+                          {pos.agentActive ? (
+                            <span className="inline-flex items-center gap-1 text-[10px] text-primary">
+                              <Bot className="h-3 w-3" />
+                              Yes
+                            </span>
+                          ) : (
+                            <span className="text-[10px] text-muted-foreground">No</span>
+                          )}
+                        </td>
+                      )}
                       <td className="px-4 py-3 text-right">
                         <button
                           onClick={() => handleClose(pos)}
@@ -955,13 +972,17 @@ const PositionsList = ({ coreProgram, isPrivateMode }: PositionsListProps) => {
                     </div>
 
                     <div className="flex items-center justify-between">
-                      {pos.agentActive ? (
-                        <span className="inline-flex items-center gap-1 text-[10px] text-primary">
-                          <Bot className="h-3 w-3" />
-                          Agent: SL ${pos.stopLoss.toLocaleString()} / TP ${pos.takeProfit.toLocaleString()}
-                        </span>
+                      {!isPrivateMode ? (
+                        pos.agentActive ? (
+                          <span className="inline-flex items-center gap-1 text-[10px] text-primary">
+                            <Bot className="h-3 w-3" />
+                            Yes (SL ${pos.stopLoss?.toLocaleString() || 'None'} / TP ${pos.takeProfit?.toLocaleString() || 'None'})
+                          </span>
+                        ) : (
+                          <span className="text-[10px] text-muted-foreground">No</span>
+                        )
                       ) : (
-                        <span className="text-[10px] text-muted-foreground">Agent disabled</span>
+                        <span className="text-[10px] text-muted-foreground opacity-0 pointer-events-none hidden">Private mode (No Agent)</span>
                       )}
                       <button
                         onClick={() => handleClose(pos)}

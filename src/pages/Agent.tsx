@@ -22,11 +22,14 @@ import { useWallet } from "@provablehq/aleo-wallet-adaptor-react";
 import AgentMessageContent from "@/components/agent/AgentMessageContent";
 import TradeSetupForm from "@/components/agent/TradeSetupForm";
 import { useAleoTransaction, API_BASE, MARKET_IDS, toPrice, toUsdcx } from "@/hooks/useAleoTransaction";
-import { addOrder, addTradeEvent, newId } from "@/lib/portfolioStore";
+import { addOrder, addTradeEventPersistent, newId } from "@/lib/portfolioStore";
 import {
   LEGACY_SETTLEMENT_MESSAGE,
   PUBLIC_CORE_PROGRAM,
   REAL_SETTLEMENT_AVAILABLE,
+  getStoredTradingMode,
+  TRADING_MODE_STORAGE_KEY,
+  type TradingMode,
 } from "@/lib/protocol";
 import { toast } from "sonner";
 
@@ -65,6 +68,25 @@ const Agent = () => {
   const { connected, address } = useWallet();
   const { execute, loading: txLoading, getLastError } = useAleoTransaction();
   const AGENT_CORE_PROGRAM = PUBLIC_CORE_PROGRAM;
+  
+  const [tradingMode, setTradingMode] = useState<TradingMode>(() => getStoredTradingMode());
+
+  useEffect(() => {
+    const handleModeEvent = (e: CustomEvent<TradingMode>) => setTradingMode(e.detail);
+    window.addEventListener("autoperp:mode-changed", handleModeEvent as EventListener);
+    const handleStorageEvent = (e: StorageEvent) => {
+      if (e.key === TRADING_MODE_STORAGE_KEY && (e.newValue === "public" || e.newValue === "private")) {
+        setTradingMode(e.newValue as TradingMode);
+      }
+    };
+    window.addEventListener("storage", handleStorageEvent);
+    return () => {
+      window.removeEventListener("autoperp:mode-changed", handleModeEvent as EventListener);
+      window.removeEventListener("storage", handleStorageEvent);
+    };
+  }, []);
+
+
 
   const { messages, isLoading, sendMessage, queueOpenPosition, appendAgentMessage, getPendingTradeParams, markActionExecuted, rejectAction } =
     useAgent({
@@ -251,7 +273,7 @@ const Agent = () => {
         status: "executed",
         executedTxId: txHash,
       }, address);
-      addTradeEvent({
+      addTradeEventPersistent({
         id: newId("trade"),
         type: "OPEN",
         market: tradeParams.market,
@@ -351,6 +373,23 @@ const Agent = () => {
     // Run inside the same user flow that submitted the form (more reliable for wallet popups).
     void handleConfirm(actionMsgId, params);
   };
+
+  if (tradingMode === "private") {
+    return (
+      <WalletGate pageName="AutoPerp Agent">
+        <div className="flex min-h-screen flex-col bg-background">
+          <Header />
+          <main className="flex-1 container pt-24 pb-20 flex flex-col justify-center items-center text-center">
+            <Bot className="h-16 w-16 text-muted-foreground/50 mb-6" />
+            <h2 className="text-2xl font-semibold mb-2 text-foreground">Agent Unavailable</h2>
+            <p className="text-muted-foreground max-w-md">
+              The AutoPerp Agent requires Public Mode for on-chain execution and settlement. Please switch back to Public Mode using the toggle in the navigation bar.
+            </p>
+          </main>
+        </div>
+      </WalletGate>
+    );
+  }
 
   return (
     <WalletGate pageName="the Agent">

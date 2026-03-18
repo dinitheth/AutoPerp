@@ -24,6 +24,7 @@ export function getStoredTradingMode(): TradingMode {
 
 export function setStoredTradingMode(mode: TradingMode) {
   localStorage.setItem(TRADING_MODE_STORAGE_KEY, mode);
+  window.dispatchEvent(new CustomEvent("autoperp:mode-changed", { detail: mode }));
 }
 
 export const STRICT_PRIVATE_CORE_ACTIVE =
