@@ -1,0 +1,1698 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AutoPerp — ZK Perpetual Exchange & Trustless AI Automation</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@300;400;500&family=Lora:ital,wght@0,400;0,500;1,400&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg-deep: #030508;
+    --bg-base: #070b12;
+    --bg-card: #0b111e;
+    --bg-card2: #0f172a;
+    --border: rgba(0,210,255,0.12);
+    --border-bright: rgba(0,210,255,0.35);
+    --cyan: #00d4ff;
+    --cyan-dim: rgba(0,212,255,0.6);
+    --gold: #e8b84b;
+    --gold-dim: rgba(232,184,75,0.7);
+    --white: #f0f4ff;
+    --muted: #7a8ba8;
+    --muted2: #4a5568;
+    --red: #ff4d6d;
+    --green: #00e5a0;
+    --purple: #a78bfa;
+    --font-display: 'Syne', sans-serif;
+    --font-mono: 'IBM Plex Mono', monospace;
+    --font-body: 'Lora', serif;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    background: var(--bg-deep);
+    color: var(--white);
+    font-family: var(--font-body);
+    font-size: 17px;
+    line-height: 1.75;
+    overflow-x: hidden;
+  }
+
+  /* ── NOISE OVERLAY ── */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.04'/%3E%3C/svg%3E");
+    pointer-events: none;
+    z-index: 9999;
+    opacity: 0.6;
+  }
+
+  /* ── SCROLLBAR ── */
+  ::-webkit-scrollbar { width: 4px; }
+  ::-webkit-scrollbar-track { background: var(--bg-deep); }
+  ::-webkit-scrollbar-thumb { background: var(--cyan); border-radius: 2px; }
+
+  /* ── NAVIGATION ── */
+  nav {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 1000;
+    padding: 0 3rem;
+    height: 64px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: rgba(3,5,8,0.85);
+    backdrop-filter: blur(20px);
+    border-bottom: 1px solid var(--border);
+  }
+
+  .nav-logo {
+    font-family: var(--font-display);
+    font-weight: 800;
+    font-size: 1.2rem;
+    letter-spacing: -0.02em;
+    color: var(--white);
+    text-decoration: none;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .nav-logo-icon {
+    width: 28px;
+    height: 28px;
+    background: linear-gradient(135deg, var(--cyan), var(--purple));
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.7rem;
+    font-family: var(--font-mono);
+    font-weight: 500;
+    color: #000;
+  }
+
+  .nav-links {
+    display: flex;
+    gap: 2rem;
+    list-style: none;
+  }
+
+  .nav-links a {
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    font-weight: 500;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+    text-decoration: none;
+    transition: color 0.2s;
+  }
+
+  .nav-links a:hover { color: var(--cyan); }
+
+  .nav-badge {
+    font-family: var(--font-mono);
+    font-size: 0.65rem;
+    color: var(--cyan);
+    border: 1px solid var(--border-bright);
+    padding: 4px 10px;
+    border-radius: 20px;
+    letter-spacing: 0.06em;
+  }
+
+  /* ── HERO ── */
+  #hero {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    padding: 120px 4rem 80px;
+    overflow: hidden;
+  }
+
+  .hero-bg {
+    position: absolute;
+    inset: 0;
+    background:
+      radial-gradient(ellipse 80% 60% at 50% 0%, rgba(0,212,255,0.07) 0%, transparent 60%),
+      radial-gradient(ellipse 50% 40% at 80% 50%, rgba(167,139,250,0.06) 0%, transparent 50%),
+      radial-gradient(ellipse 60% 50% at 20% 80%, rgba(232,184,75,0.04) 0%, transparent 50%);
+  }
+
+  .hero-grid {
+    position: absolute;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(0,212,255,0.04) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(0,212,255,0.04) 1px, transparent 1px);
+    background-size: 60px 60px;
+    mask-image: radial-gradient(ellipse 80% 80% at 50% 50%, black 0%, transparent 80%);
+  }
+
+  .hero-inner {
+    max-width: 900px;
+    text-align: center;
+    position: relative;
+    z-index: 1;
+  }
+
+  .hero-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--cyan);
+    border: 1px solid var(--border-bright);
+    background: rgba(0,212,255,0.06);
+    padding: 6px 16px;
+    border-radius: 20px;
+    margin-bottom: 2.5rem;
+    animation: fadeDown 0.8s ease both;
+  }
+
+  .hero-tag::before {
+    content: '';
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--cyan);
+    animation: pulse 2s ease infinite;
+  }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.3; }
+  }
+
+  h1 {
+    font-family: var(--font-display);
+    font-size: clamp(3rem, 6vw, 5.5rem);
+    font-weight: 800;
+    line-height: 1.0;
+    letter-spacing: -0.04em;
+    margin-bottom: 1.5rem;
+    animation: fadeDown 0.8s 0.1s ease both;
+  }
+
+  h1 .line1 { display: block; color: var(--white); }
+  h1 .line2 {
+    display: block;
+    background: linear-gradient(90deg, var(--cyan), var(--purple), var(--gold));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .hero-sub {
+    font-family: var(--font-body);
+    font-size: 1.1rem;
+    color: var(--muted);
+    max-width: 640px;
+    margin: 0 auto 3rem;
+    line-height: 1.7;
+    animation: fadeDown 0.8s 0.2s ease both;
+  }
+
+  .hero-meta {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 2rem;
+    animation: fadeDown 0.8s 0.3s ease both;
+    flex-wrap: wrap;
+  }
+
+  .hero-meta-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    color: var(--muted);
+  }
+
+  .hero-meta-item span {
+    color: var(--gold);
+    font-weight: 500;
+  }
+
+  .hero-cta {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    background: linear-gradient(135deg, var(--cyan), #0090cc);
+    color: #000;
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+    font-weight: 500;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    padding: 14px 28px;
+    border-radius: 4px;
+    text-decoration: none;
+    transition: transform 0.2s, box-shadow 0.2s;
+    box-shadow: 0 0 30px rgba(0,212,255,0.3);
+  }
+
+  .hero-cta:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 0 50px rgba(0,212,255,0.5);
+  }
+
+  .hero-divider {
+    margin: 80px auto 0;
+    max-width: 700px;
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 1px;
+    background: var(--border);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+    animation: fadeUp 0.8s 0.4s ease both;
+  }
+
+  .stat-box {
+    background: var(--bg-card);
+    padding: 1.5rem;
+    text-align: center;
+  }
+
+  .stat-val {
+    font-family: var(--font-display);
+    font-size: 2rem;
+    font-weight: 800;
+    color: var(--cyan);
+    letter-spacing: -0.03em;
+    display: block;
+    margin-bottom: 4px;
+  }
+
+  .stat-label {
+    font-family: var(--font-mono);
+    font-size: 0.65rem;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--muted);
+  }
+
+  /* ── MAIN CONTENT ── */
+  main {
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 0 2rem;
+  }
+
+  /* ── SECTION ── */
+  .section {
+    padding: 100px 0;
+    border-top: 1px solid var(--border);
+  }
+
+  .section-header {
+    display: flex;
+    align-items: flex-start;
+    gap: 2rem;
+    margin-bottom: 4rem;
+  }
+
+  .section-number {
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    color: var(--cyan);
+    letter-spacing: 0.1em;
+    padding-top: 8px;
+    min-width: 3rem;
+    opacity: 0.7;
+  }
+
+  .section-title-wrap { flex: 1; }
+
+  h2 {
+    font-family: var(--font-display);
+    font-size: clamp(1.8rem, 3vw, 2.8rem);
+    font-weight: 800;
+    letter-spacing: -0.03em;
+    line-height: 1.1;
+    margin-bottom: 0.75rem;
+  }
+
+  .section-desc {
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    color: var(--muted);
+    letter-spacing: 0.06em;
+  }
+
+  h3 {
+    font-family: var(--font-display);
+    font-size: 1.25rem;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    color: var(--white);
+    margin: 2.5rem 0 1rem;
+  }
+
+  h3 .num {
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    color: var(--cyan);
+    margin-right: 10px;
+    opacity: 0.8;
+  }
+
+  p { color: var(--muted); margin-bottom: 1.2rem; line-height: 1.8; }
+
+  strong { color: var(--white); font-style: normal; }
+
+  /* ── CARD GRID ── */
+  .card-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 1px;
+    background: var(--border);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+    margin: 2.5rem 0;
+  }
+
+  .card {
+    background: var(--bg-card);
+    padding: 2rem;
+    position: relative;
+    transition: background 0.3s;
+  }
+
+  .card:hover { background: var(--bg-card2); }
+
+  .card-icon {
+    width: 40px;
+    height: 40px;
+    border-radius: 8px;
+    background: rgba(0,212,255,0.1);
+    border: 1px solid var(--border-bright);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 1.2rem;
+    font-size: 1.1rem;
+  }
+
+  .card h4 {
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: 1rem;
+    color: var(--white);
+    margin-bottom: 0.6rem;
+    letter-spacing: -0.01em;
+  }
+
+  .card p { font-size: 0.88rem; margin: 0; }
+
+  /* ── HIGHLIGHT BOX ── */
+  .highlight-box {
+    background: linear-gradient(135deg, rgba(0,212,255,0.05), rgba(167,139,250,0.05));
+    border: 1px solid var(--border-bright);
+    border-left: 3px solid var(--cyan);
+    border-radius: 0 8px 8px 0;
+    padding: 1.5rem 2rem;
+    margin: 2rem 0;
+    position: relative;
+  }
+
+  .highlight-box::before {
+    content: '◆';
+    font-size: 0.6rem;
+    color: var(--cyan);
+    position: absolute;
+    left: -8px;
+    top: 50%;
+    transform: translateY(-50%);
+    background: var(--bg-deep);
+    padding: 2px 0;
+  }
+
+  .highlight-box p { color: var(--white); margin: 0; font-size: 0.95rem; }
+
+  /* ── CODE BLOCK ── */
+  .code-block {
+    background: #060a10;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+    margin: 2rem 0;
+    font-family: var(--font-mono);
+  }
+
+  .code-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 16px;
+    background: rgba(0,212,255,0.05);
+    border-bottom: 1px solid var(--border);
+  }
+
+  .code-dot { width: 10px; height: 10px; border-radius: 50%; }
+  .code-dot.r { background: #ff5f57; }
+  .code-dot.y { background: #febc2e; }
+  .code-dot.g { background: #28c840; }
+
+  .code-filename {
+    font-size: 0.7rem;
+    color: var(--muted);
+    letter-spacing: 0.06em;
+    margin-left: 4px;
+  }
+
+  .code-body {
+    padding: 1.5rem 2rem;
+    font-size: 0.82rem;
+    line-height: 1.7;
+    overflow-x: auto;
+  }
+
+  .code-line { display: block; }
+  .code-comment { color: #4a5568; }
+  .code-keyword { color: #a78bfa; }
+  .code-string { color: #68d391; }
+  .code-number { color: var(--gold); }
+  .code-type { color: var(--cyan); }
+  .code-fn { color: #f6ad55; }
+
+  /* ── MATH FORMULA ── */
+  .formula-block {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 2rem;
+    text-align: center;
+    margin: 2rem 0;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .formula-block::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(ellipse at center, rgba(0,212,255,0.04), transparent 70%);
+  }
+
+  .formula-label {
+    font-family: var(--font-mono);
+    font-size: 0.65rem;
+    color: var(--muted);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    margin-bottom: 1rem;
+  }
+
+  .formula {
+    font-family: var(--font-mono);
+    font-size: 1.1rem;
+    color: var(--white);
+    position: relative;
+    z-index: 1;
+  }
+
+  .formula .var { color: var(--gold); font-style: italic; }
+  .formula .op { color: var(--muted); }
+  .formula .fraction { display: inline-flex; flex-direction: column; align-items: center; vertical-align: middle; margin: 0 4px; }
+  .formula .numerator, .formula .denominator { padding: 0 6px; }
+  .formula .numerator { border-bottom: 1px solid var(--muted); }
+
+  .formula-desc {
+    font-size: 0.82rem;
+    color: var(--muted);
+    margin-top: 1rem;
+    position: relative;
+    z-index: 1;
+  }
+
+  /* ── BITMASK TABLE ── */
+  .bitmask-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 2rem 0;
+    font-family: var(--font-mono);
+  }
+
+  .bitmask-table th {
+    background: rgba(0,212,255,0.08);
+    padding: 12px 16px;
+    text-align: left;
+    font-size: 0.7rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--cyan);
+    border: 1px solid var(--border);
+  }
+
+  .bitmask-table td {
+    padding: 12px 16px;
+    font-size: 0.82rem;
+    color: var(--muted);
+    border: 1px solid var(--border);
+    background: var(--bg-card);
+  }
+
+  .bitmask-table tr:hover td { background: var(--bg-card2); }
+
+  .bit-val {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 24px;
+    background: rgba(0,212,255,0.1);
+    border: 1px solid var(--border-bright);
+    border-radius: 4px;
+    color: var(--cyan);
+    font-size: 0.75rem;
+  }
+
+  .bit-allow { color: var(--green); }
+  .bit-deny { color: var(--red); }
+
+  /* ── LIFECYCLE STEPS ── */
+  .lifecycle {
+    position: relative;
+    padding-left: 2.5rem;
+    margin: 2.5rem 0;
+  }
+
+  .lifecycle::before {
+    content: '';
+    position: absolute;
+    left: 10px;
+    top: 20px;
+    bottom: 20px;
+    width: 1px;
+    background: linear-gradient(to bottom, var(--cyan), var(--purple), transparent);
+  }
+
+  .lifecycle-step {
+    position: relative;
+    padding: 1.2rem 1.5rem;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    margin-bottom: 1rem;
+    transition: border-color 0.3s;
+  }
+
+  .lifecycle-step:hover { border-color: var(--border-bright); }
+
+  .lifecycle-step::before {
+    content: attr(data-step);
+    position: absolute;
+    left: -2.15rem;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: var(--bg-deep);
+    border: 2px solid var(--cyan);
+    color: var(--cyan);
+    font-family: var(--font-mono);
+    font-size: 0.6rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .step-title {
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: 0.9rem;
+    color: var(--white);
+    margin-bottom: 0.4rem;
+  }
+
+  .step-desc {
+    font-size: 0.85rem;
+    color: var(--muted);
+    margin: 0;
+  }
+
+  /* ── ARCHITECTURE DIAGRAM ── */
+  .arch-diagram {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 2.5rem;
+    margin: 2.5rem 0;
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 1.5rem;
+    position: relative;
+  }
+
+  .arch-node {
+    background: var(--bg-deep);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.2rem;
+    text-align: center;
+    position: relative;
+    transition: border-color 0.3s, transform 0.3s;
+  }
+
+  .arch-node:hover {
+    border-color: var(--border-bright);
+    transform: translateY(-2px);
+  }
+
+  .arch-node .node-name {
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    color: var(--cyan);
+    letter-spacing: 0.06em;
+    display: block;
+    margin-bottom: 6px;
+  }
+
+  .arch-node .node-desc {
+    font-family: var(--font-body);
+    font-size: 0.78rem;
+    color: var(--muted);
+    margin: 0;
+  }
+
+  .arch-connector {
+    grid-column: 1 / -1;
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    justify-content: center;
+    color: var(--muted);
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    letter-spacing: 0.08em;
+  }
+
+  .arch-arrow {
+    flex: 1;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--cyan), transparent);
+  }
+
+  /* ── HYBRID MODEL ── */
+  .hybrid-model {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1px;
+    background: var(--border);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+    margin: 2.5rem 0;
+  }
+
+  .hybrid-col {
+    background: var(--bg-card);
+    padding: 2rem;
+  }
+
+  .hybrid-col-title {
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: 1rem;
+    margin-bottom: 0.5rem;
+  }
+
+  .hybrid-col.public .hybrid-col-title { color: var(--cyan); }
+  .hybrid-col.private .hybrid-col-title { color: var(--purple); }
+
+  .hybrid-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--border);
+    font-family: var(--font-mono);
+    font-size: 0.78rem;
+    color: var(--muted);
+  }
+
+  .hybrid-item:last-child { border-bottom: none; }
+
+  .hybrid-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  .public .hybrid-dot { background: var(--cyan); }
+  .private .hybrid-dot { background: var(--purple); }
+
+  /* ── ROADMAP ── */
+  .roadmap {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 1.5rem;
+    margin: 2.5rem 0;
+  }
+
+  .roadmap-item {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 2rem;
+    position: relative;
+    overflow: hidden;
+    transition: border-color 0.3s;
+  }
+
+  .roadmap-item:hover { border-color: var(--border-bright); }
+
+  .roadmap-item::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 2px;
+  }
+
+  .roadmap-item.zkml::before { background: linear-gradient(90deg, var(--cyan), var(--purple)); }
+  .roadmap-item.yield::before { background: linear-gradient(90deg, var(--gold), var(--green)); }
+
+  .roadmap-phase {
+    font-family: var(--font-mono);
+    font-size: 0.65rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 1rem;
+  }
+
+  .roadmap-title {
+    font-family: var(--font-display);
+    font-size: 1.2rem;
+    font-weight: 700;
+    color: var(--white);
+    margin-bottom: 0.8rem;
+    letter-spacing: -0.02em;
+  }
+
+  .roadmap-desc { font-size: 0.88rem; color: var(--muted); margin: 0; }
+
+  /* ── ABSTRACT BANNER ── */
+  .abstract-banner {
+    background: linear-gradient(135deg, rgba(0,212,255,0.06), rgba(167,139,250,0.06));
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 3rem;
+    margin: 2rem 0;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .abstract-banner::before {
+    content: '"';
+    position: absolute;
+    top: -20px;
+    left: 20px;
+    font-size: 14rem;
+    color: rgba(0,212,255,0.04);
+    font-family: var(--font-display);
+    line-height: 1;
+    pointer-events: none;
+    select: none;
+  }
+
+  .abstract-text {
+    font-size: 1.02rem;
+    color: rgba(240,244,255,0.85);
+    line-height: 1.85;
+    position: relative;
+    z-index: 1;
+    margin: 0;
+  }
+
+  /* ── FOOTER ── */
+  footer {
+    border-top: 1px solid var(--border);
+    padding: 4rem 2rem;
+    max-width: 1100px;
+    margin: 0 auto;
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 3rem;
+    align-items: start;
+  }
+
+  .footer-brand h3 {
+    font-family: var(--font-display);
+    font-size: 1.4rem;
+    font-weight: 800;
+    color: var(--white);
+    margin: 0 0 0.5rem;
+    letter-spacing: -0.02em;
+  }
+
+  .footer-brand p {
+    font-size: 0.83rem;
+    color: var(--muted);
+    margin: 0;
+  }
+
+  .footer-col h5 {
+    font-family: var(--font-mono);
+    font-size: 0.65rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 1rem;
+  }
+
+  .footer-col ul { list-style: none; }
+
+  .footer-col li {
+    font-family: var(--font-mono);
+    font-size: 0.78rem;
+    color: var(--muted);
+    padding: 5px 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .footer-col li span {
+    color: var(--cyan);
+    float: right;
+    font-size: 0.65rem;
+  }
+
+  .footer-bottom {
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 1.5rem 2rem;
+    border-top: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .footer-bottom p {
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    color: var(--muted2);
+    margin: 0;
+  }
+
+  /* ── ANIMATIONS ── */
+  @keyframes fadeDown {
+    from { opacity: 0; transform: translateY(-20px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(20px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  /* ── SCROLL REVEAL ── */
+  .reveal {
+    opacity: 0;
+    transform: translateY(28px);
+    transition: opacity 0.6s ease, transform 0.6s ease;
+  }
+
+  .reveal.visible {
+    opacity: 1;
+    transform: translateY(0);
+  }
+
+  /* ── GLOW LINE ── */
+  .glow-line {
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--cyan), var(--purple), transparent);
+    margin: 4rem 0;
+    opacity: 0.4;
+  }
+
+  /* ── VALUE PROPS ── */
+  .vp-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 1px;
+    background: var(--border);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+    margin: 2.5rem 0;
+  }
+
+  .vp-item {
+    background: var(--bg-card);
+    padding: 2rem;
+    display: flex;
+    gap: 1.2rem;
+    align-items: flex-start;
+    transition: background 0.3s;
+  }
+
+  .vp-item:hover { background: var(--bg-card2); }
+
+  .vp-num {
+    font-family: var(--font-mono);
+    font-size: 1.8rem;
+    font-weight: 300;
+    color: rgba(0,212,255,0.2);
+    line-height: 1;
+    flex-shrink: 0;
+    width: 40px;
+  }
+
+  .vp-content h4 {
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: 0.95rem;
+    color: var(--white);
+    margin-bottom: 0.4rem;
+    letter-spacing: -0.01em;
+  }
+
+  .vp-content p { font-size: 0.85rem; margin: 0; }
+
+  /* ── RESPONSIVE ── */
+  @media (max-width: 768px) {
+    nav { padding: 0 1.5rem; }
+    .nav-links { display: none; }
+    #hero { padding: 100px 2rem 60px; }
+    .section-header { flex-direction: column; gap: 0.5rem; }
+    .arch-diagram { grid-template-columns: 1fr; }
+    .hybrid-model { grid-template-columns: 1fr; }
+    footer { grid-template-columns: 1fr; }
+    .vp-grid { grid-template-columns: 1fr; }
+    .hero-divider { grid-template-columns: 1fr; }
+  }
+
+  /* ── INLINE TAG ── */
+  .tag {
+    display: inline-block;
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    padding: 2px 8px;
+    border-radius: 3px;
+    vertical-align: middle;
+  }
+
+  .tag-cyan { background: rgba(0,212,255,0.12); color: var(--cyan); border: 1px solid rgba(0,212,255,0.2); }
+  .tag-gold { background: rgba(232,184,75,0.12); color: var(--gold); border: 1px solid rgba(232,184,75,0.2); }
+  .tag-purple { background: rgba(167,139,250,0.12); color: var(--purple); border: 1px solid rgba(167,139,250,0.2); }
+  .tag-green { background: rgba(0,229,160,0.12); color: var(--green); border: 1px solid rgba(0,229,160,0.2); }
+
+  /* ─── Sticky TOC ─── */
+  .toc-aside {
+    position: fixed;
+    left: 2rem;
+    top: 50%;
+    transform: translateY(-50%);
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    z-index: 100;
+  }
+
+  .toc-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--muted2);
+    cursor: pointer;
+    transition: background 0.2s, transform 0.2s;
+    position: relative;
+  }
+
+  .toc-dot::after {
+    content: attr(data-label);
+    position: absolute;
+    left: 14px;
+    top: 50%;
+    transform: translateY(-50%);
+    font-family: var(--font-mono);
+    font-size: 0.65rem;
+    color: var(--muted);
+    white-space: nowrap;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s;
+    background: var(--bg-card);
+    padding: 3px 8px;
+    border-radius: 3px;
+    border: 1px solid var(--border);
+  }
+
+  .toc-dot:hover::after { opacity: 1; }
+  .toc-dot.active { background: var(--cyan); transform: scale(1.4); }
+
+  @media (max-width: 1200px) {
+    .toc-aside { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<!-- NAV -->
+<nav>
+  <a href="#hero" class="nav-logo">
+    <div class="nav-logo-icon">AP</div>
+    AutoPerp
+  </a>
+  <ul class="nav-links">
+    <li><a href="#abstract">Abstract</a></li>
+    <li><a href="#architecture">Architecture</a></li>
+    <li><a href="#agentauth">AgentAuth</a></li>
+    <li><a href="#mathematics">Mathematics</a></li>
+    <li><a href="#roadmap">Roadmap</a></li>
+  </ul>
+  <span class="nav-badge">Protocol v9.0</span>
+</nav>
+
+<!-- TOC DOTS -->
+<div class="toc-aside">
+  <div class="toc-dot active" data-label="Hero" onclick="scrollToId('hero')"></div>
+  <div class="toc-dot" data-label="Abstract" onclick="scrollToId('abstract')"></div>
+  <div class="toc-dot" data-label="Introduction" onclick="scrollToId('intro')"></div>
+  <div class="toc-dot" data-label="Cryptography" onclick="scrollToId('crypto')"></div>
+  <div class="toc-dot" data-label="Architecture" onclick="scrollToId('architecture')"></div>
+  <div class="toc-dot" data-label="AgentAuth" onclick="scrollToId('agentauth')"></div>
+  <div class="toc-dot" data-label="Scalability" onclick="scrollToId('scalability')"></div>
+  <div class="toc-dot" data-label="Mathematics" onclick="scrollToId('mathematics')"></div>
+  <div class="toc-dot" data-label="Roadmap" onclick="scrollToId('roadmap')"></div>
+</div>
+
+<!-- HERO -->
+<section id="hero">
+  <div class="hero-bg"></div>
+  <div class="hero-grid"></div>
+  <div class="hero-inner">
+    <div class="hero-tag">Aleo Blockchain · Leo 4.0 · zk-SNARKs · Protocol v9.0</div>
+    <h1>
+      <span class="line1">Zero-Knowledge Perpetuals.</span>
+      <span class="line2">Trustless AI Automation.</span>
+    </h1>
+    <p class="hero-sub">
+      A decentralized, privacy-preserving perpetual futures exchange with mathematically scoped AI agent authorization — no private keys exposed, no strategies leaked.
+    </p>
+    <div class="hero-meta">
+      <div class="hero-meta-item">Leverage up to <span>50×</span></div>
+      <div class="hero-meta-item" style="color:var(--border-bright)">|</div>
+      <div class="hero-meta-item">Positions <span>Fully Encrypted</span></div>
+      <div class="hero-meta-item" style="color:var(--border-bright)">|</div>
+      <div class="hero-meta-item">AI Agents <span>Trustless</span></div>
+    </div>
+    <br/>
+    <a href="#abstract" class="hero-cta">Read Whitepaper ↓</a>
+
+    <div class="hero-divider">
+      <div class="stat-box">
+        <span class="stat-val">50×</span>
+        <span class="stat-label">Max Leverage</span>
+      </div>
+      <div class="stat-box">
+        <span class="stat-val">0</span>
+        <span class="stat-label">Private Keys Exposed</span>
+      </div>
+      <div class="stat-box">
+        <span class="stat-val">∞</span>
+        <span class="stat-label">Strategy Privacy</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<main>
+
+  <!-- ABSTRACT -->
+  <section class="section reveal" id="abstract">
+    <div class="section-header">
+      <span class="section-number">§ 00</span>
+      <div class="section-title-wrap">
+        <h2>Abstract</h2>
+        <p class="section-desc">Protocol overview and core value proposition</p>
+      </div>
+    </div>
+
+    <div class="abstract-banner">
+      <p class="abstract-text">
+        AutoPerp is a decentralized, privacy-preserving perpetual futures exchange deployed natively on the <strong>Aleo blockchain</strong>. By utilizing zero-knowledge cryptography (zk-SNARKs) and Leo 4.0's cross-program invocation capabilities, AutoPerp allows traders to execute highly leveraged (up to 50×) derivatives trades while <strong>cryptographically concealing</strong> their trade sizes, liquidation margins, and PnL from the public ledger. Furthermore, AutoPerp introduces the <strong>AgentAuth Protocol</strong>, a trustless framework that enables AI agents to autonomously manage trading strategies via mathematically scoped, time-bound permission tickets — completely eliminating the need for centralized API key sharing or custodial wallets.
+      </p>
+    </div>
+
+    <div class="vp-grid reveal">
+      <div class="vp-item">
+        <span class="vp-num">01</span>
+        <div class="vp-content">
+          <h4>Capital &amp; Strategies Invisible</h4>
+          <p>Using zk-SNARKs and shielded token transfers, trades execute trustlessly without revealing any underlying data to the public ledger or network observers.</p>
+        </div>
+      </div>
+      <div class="vp-item">
+        <span class="vp-num">02</span>
+        <div class="vp-content">
+          <h4>Automation is Parameterized and Trustless</h4>
+          <p>AI trading is handled via unprivileged smart contracts governed by mathematically strictly scoped "Permission Tickets" through the AgentAuth Protocol.</p>
+        </div>
+      </div>
+      <div class="vp-item">
+        <span class="vp-num">03</span>
+        <div class="vp-content">
+          <h4>MEV-Resistant Architecture</h4>
+          <p>All position sizes, liquidation thresholds and trade details are encrypted — front-running bots and copy-traders are rendered completely blind.</p>
+        </div>
+      </div>
+      <div class="vp-item">
+        <span class="vp-num">04</span>
+        <div class="vp-content">
+          <h4>Institutional-Grade Privacy</h4>
+          <p>Achieves information parity with TradFi institutions by ensuring profitable strategy alpha is never leaked from wallet activity analysis.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- INTRODUCTION -->
+  <section class="section reveal" id="intro">
+    <div class="section-header">
+      <span class="section-number">§ 01</span>
+      <div class="section-title-wrap">
+        <h2>Introduction</h2>
+        <p class="section-desc">The problems AutoPerp is built to solve</p>
+      </div>
+    </div>
+
+    <h3><span class="num">1.1</span>The State of Decentralized Derivatives</h3>
+    <p>Decentralized Finance (DeFi) has democratized access to complex financial instruments, with perpetual futures emerging as the dominant trading vehicle by volume. However, the current generation of decentralized exchanges (DEXs) operating on EVM-compatible and transparent blockchains suffer from <strong>fundamental architectural flaws</strong> that actively harm retail participants.</p>
+
+    <h3><span class="num">1.2</span>The Privacy Dilemma: MEV and Information Asymmetry</h3>
+    <p>On Ethereum, Solana, and Arbitrum, every user transaction, position size, and liquidation threshold is <strong>broadcasted in plaintext</strong> to the entire network. This total transparency produces extreme information asymmetry:</p>
+
+    <div class="card-grid reveal">
+      <div class="card">
+        <div class="card-icon">⚡</div>
+        <h4>MEV Front-Running</h4>
+        <p>Institutional actors and MEV bots monitor mempools to front-run retail order flow, extracting value before transactions settle.</p>
+      </div>
+      <div class="card">
+        <div class="card-icon">👁</div>
+        <h4>Copy-Trading Exposure</h4>
+        <p>Profitable traders are routinely copy-traded the moment wallet addresses are identified, permanently destroying the alpha of proprietary strategies.</p>
+      </div>
+      <div class="card">
+        <div class="card-icon">⚠️</div>
+        <h4>Liquidation Hunting</h4>
+        <p>Visible liquidation thresholds allow adversarial actors to precisely target and trigger cascading liquidations against transparent positions.</p>
+      </div>
+    </div>
+
+    <h3><span class="num">1.3</span>The AI Automation Dilemma: Private Key Custody</h3>
+    <p>The emergence of Large Language Models has birthed massive demand for AI-automated trading. The industry's current solution, however, is <strong>structurally broken</strong>: users are forced to hand over their private wallet keys to custodial Telegram bots or centralized Python servers.</p>
+
+    <div class="highlight-box">
+      <p>Handing a private key to a black-box server is equivalent to giving a stranger unlimited access to your bank account. AutoPerp replaces this paradigm entirely with <strong>mathematically scoped, time-bound permission tickets</strong> — the AI agent never receives private key access.</p>
+    </div>
+  </section>
+
+  <div class="glow-line"></div>
+
+  <!-- CRYPTOGRAPHIC FOUNDATION -->
+  <section class="section reveal" id="crypto">
+    <div class="section-header">
+      <span class="section-number">§ 02</span>
+      <div class="section-title-wrap">
+        <h2>Cryptographic Foundation</h2>
+        <p class="section-desc">snarkVM · Leo 4.0 · Aleo Network</p>
+      </div>
+    </div>
+
+    <h3><span class="num">2.1</span>The Aleo Network Advantage</h3>
+    <p>AutoPerp is built on <strong>Aleo</strong>, a Layer-1 blockchain explicitly designed for zero-knowledge applications. Aleo utilizes <span class="tag tag-cyan">snarkVM</span>, allowing programs to be executed <em>off-chain</em> while only submitting cryptographic proofs of execution to the blockchain. This moves the computational burden of complex trading arithmetic off the consensus layer, ensuring <strong>absolute privacy and horizontal scalability</strong>.</p>
+
+    <div class="code-block reveal">
+      <div class="code-header">
+        <div class="code-dot r"></div>
+        <div class="code-dot y"></div>
+        <div class="code-dot g"></div>
+        <span class="code-filename">autoperp_core_private_v9.aleo — record model</span>
+      </div>
+      <div class="code-body">
+<span class="code-line"><span class="code-comment">// Private encrypted position record — invisible to all observers</span></span>
+<span class="code-line"><span class="code-keyword">record</span> <span class="code-type">PositionRecord</span> {</span>
+<span class="code-line">  <span class="code-fn">owner</span>:          <span class="code-type">address</span>,     <span class="code-comment">// encrypted under user view key</span></span>
+<span class="code-line">  <span class="code-fn">position_size</span>:  <span class="code-type">u64</span>,         <span class="code-comment">// concealed from network observers</span></span>
+<span class="code-line">  <span class="code-fn">leverage</span>:       <span class="code-type">u64</span>,         <span class="code-comment">// max 50x, enforced in circuit</span></span>
+<span class="code-line">  <span class="code-fn">entry_price</span>:    <span class="code-type">u64</span>,         <span class="code-comment">// scaled × 10000u64</span></span>
+<span class="code-line">  <span class="code-fn">liq_threshold</span>:  <span class="code-type">u64</span>,         <span class="code-comment">// private — cannot be hunted</span></span>
+<span class="code-line">  <span class="code-fn">is_long</span>:        <span class="code-type">bool</span>,</span>
+<span class="code-line">  <span class="code-fn">expiry_block</span>:   <span class="code-type">u32</span>,</span>
+<span class="code-line">}</span>
+      </div>
+    </div>
+
+    <h3><span class="num">2.2</span>Record Model vs. Account Model</h3>
+    <p>Unlike the EVM's global state account model, Aleo utilizes a <strong>Record model</strong> (analogous to Bitcoin's UTXOs but capable of holding complex data payloads). AutoPerp leverages Records to represent individual user states (<span class="tag tag-cyan">TraderVault</span>, <span class="tag tag-cyan">PositionRecord</span>). Because these records are encrypted under the user's view key, <strong>they are indistinguishable from random noise</strong> to network observers.</p>
+
+    <div class="card-grid reveal">
+      <div class="card">
+        <div class="card-icon" style="background:rgba(167,139,250,0.1); border-color:rgba(167,139,250,0.3)">🔒</div>
+        <h4>Off-Chain Execution</h4>
+        <p>Complex proof generation happens locally; only succinct zk-SNARK proofs are published to chain — no computational bottleneck on consensus.</p>
+      </div>
+      <div class="card">
+        <div class="card-icon" style="background:rgba(232,184,75,0.1); border-color:rgba(232,184,75,0.3)">🔀</div>
+        <h4>UTXO-Style Records</h4>
+        <p>State is owned by individuals as encrypted records rather than shared global state, eliminating information leakage by design.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ARCHITECTURE -->
+  <section class="section reveal" id="architecture">
+    <div class="section-header">
+      <span class="section-number">§ 03</span>
+      <div class="section-title-wrap">
+        <h2>Protocol Architecture</h2>
+        <p class="section-desc">Smart contracts · Cross-program invocations · Oracle integration</p>
+      </div>
+    </div>
+
+    <p>The overarching AutoPerp protocol relies on the synergy of distinct, decoupled programs compiled using <span class="tag tag-cyan">Leo 4.0</span>.</p>
+
+    <div class="arch-diagram reveal">
+      <div class="arch-node">
+        <span class="node-name">autoperp_core_v9.aleo</span>
+        <p class="node-desc">Settlement Engine — public-facing, handles collateral deposits, LP provision, and transparent TVL accounting</p>
+      </div>
+      <div class="arch-node">
+        <span class="node-name">autoperp_core_private_v9.aleo</span>
+        <p class="node-desc">Private Encrypted Engine — full ZK circuit environment, consumes &amp; produces encrypted Records only</p>
+      </div>
+      <div class="arch-node">
+        <span class="node-name">autoperp_oracle_v2.aleo</span>
+        <p class="node-desc">Cross-Program TWAP Oracle — decentralized price feeds invoked laterally via Mapping::get_or_use()</p>
+      </div>
+      <div class="arch-connector">
+        <div class="arch-arrow"></div>
+        <span style="color:var(--cyan); font-size:0.65rem; white-space:nowrap;">Leo 4.0 Cross-Program Invocations</span>
+        <div class="arch-arrow"></div>
+      </div>
+      <div class="arch-node" style="grid-column:1/2">
+        <span class="node-name">autoperp_agent_v3.aleo</span>
+        <p class="node-desc">AgentAuth contract — mints, validates, and burns time-bound permission tickets</p>
+      </div>
+      <div class="arch-node" style="grid-column:2/3">
+        <span class="node-name">test_usdcx_stablecoin.aleo</span>
+        <p class="node-desc">Collateral token program — handles shielded exits via transfer_public_to_private</p>
+      </div>
+    </div>
+
+    <h3><span class="num">3.1</span>Core Settlement Engine</h3>
+    <p>The public-facing engine manages collateral deposits, liquidity provision, and trade settlement. It operates primarily on transparent mappings to ensure the overall <strong>Total Value Locked (TVL) is highly verifiable</strong> and easily auditable by the community.</p>
+
+    <h3><span class="num">3.2</span>Private Encrypted Engine</h3>
+    <p>The private core mirrors the settlement engine but operates entirely inside the zero-knowledge circuit environment. Transaction inputs and outputs are consumed and produced as <strong>encrypted Records</strong> — wallet balances, open positions, and liquidation thresholds are never publicly visible.</p>
+
+    <h3><span class="num">3.3</span>Cross-Program Oracle Integration</h3>
+    <p>A decentralized <strong>Time-Weighted Average Price (TWAP)</strong> oracle program. Through Leo 4.0's external mapping invocations, the Core and Private programs execute <span class="tag tag-gold">Mapping::get_or_use()</span> queries into the Oracle program on-chain. This lateral data pipeline guarantees that <strong>trades only settle against hardened, verifiable consensus prices</strong> — user-supplied parameters are entirely discarded.</p>
+
+    <div class="code-block reveal">
+      <div class="code-header">
+        <div class="code-dot r"></div><div class="code-dot y"></div><div class="code-dot g"></div>
+        <span class="code-filename">autoperp_core_v9.aleo — oracle cross-invocation</span>
+      </div>
+      <div class="code-body">
+<span class="code-line"><span class="code-comment">// Finalize block: fetch hardened price from oracle program</span></span>
+<span class="code-line"><span class="code-keyword">finalize</span> <span class="code-fn">open_position</span>(</span>
+<span class="code-line">  <span class="code-fn">execution_price</span>: <span class="code-type">u64</span>,</span>
+<span class="code-line">  <span class="code-fn">market_id</span>:       <span class="code-type">u64</span>,</span>
+<span class="code-line">) {</span>
+<span class="code-line">  <span class="code-comment">// Lateral cross-program oracle query</span></span>
+<span class="code-line">  <span class="code-keyword">let</span> oracle_price <span class="code-op">=</span> <span class="code-type">Mapping</span>::<span class="code-fn">get_or_use</span>(</span>
+<span class="code-line">    <span class="code-string">autoperp_oracle_v2</span>.twap_prices, market_id, <span class="code-number">0u64</span></span>
+<span class="code-line">  );</span>
+<span class="code-line">  <span class="code-comment">// Enforce ≤1% divergence for public operations</span></span>
+<span class="code-line">  <span class="code-keyword">let</span> divergence <span class="code-op">=</span> (execution_price.<span class="code-fn">abs_diff</span>(oracle_price)</span>
+<span class="code-line">    <span class="code-op">*</span> <span class="code-number">10000u64</span>) <span class="code-op">/</span> oracle_price;</span>
+<span class="code-line">  <span class="code-fn">assert</span>(divergence <span class="code-op">&lt;=</span> <span class="code-number">100u64</span>);</span>
+<span class="code-line">}</span>
+      </div>
+    </div>
+  </section>
+
+  <div class="glow-line"></div>
+
+  <!-- AGENTAUTH -->
+  <section class="section reveal" id="agentauth">
+    <div class="section-header">
+      <span class="section-number">§ 04</span>
+      <div class="section-title-wrap">
+        <h2>The AgentAuth Protocol</h2>
+        <p class="section-desc">Permissioned intent execution · Trustless AI delegation</p>
+      </div>
+    </div>
+
+    <div class="highlight-box">
+      <p>Rather than authorizing an AI to <em>control</em> a wallet, the user delegates narrow, provable <strong>intent</strong>. The AI agent operates from an unprivileged, standard Aleo address — cryptographic proof of permission replaces private key trust.</p>
+    </div>
+
+    <h3><span class="num">4.1</span>Lifecycle of an AgentAuth Ticket</h3>
+
+    <div class="lifecycle reveal">
+      <div class="lifecycle-step" data-step="1">
+        <div class="step-title">Intention Parsing <span class="tag tag-cyan" style="font-size:0.65rem; margin-left:8px">Frontend · Gemini LLM</span></div>
+        <p class="step-desc">The user interacts with the AutoPerp frontend, outlining their technical strategy: <em>"Open a 10× long on BTC if the price drops below $65,000."</em> The LLM proxy parses the strategy into protocol parameters.</p>
+      </div>
+      <div class="lifecycle-step" data-step="2">
+        <div class="step-title">Ticket Minting <span class="tag tag-purple" style="font-size:0.65rem; margin-left:8px">autoperp_agent_v3.aleo</span></div>
+        <p class="step-desc">The frontend crafts a transaction invoking <code style="font-family:var(--font-mono);font-size:0.8rem;color:var(--gold)">grant_auth()</code>. The user signs this transaction, burning a small gas fee to mint an encrypted <code style="font-family:var(--font-mono);font-size:0.8rem;color:var(--cyan)">AgentAuthTicket</code> Record on-chain, assigned directly to the AI's address.</p>
+      </div>
+      <div class="lifecycle-step" data-step="3">
+        <div class="step-title">Autonomous Execution <span class="tag tag-green" style="font-size:0.65rem; margin-left:8px">AI Agent</span></div>
+        <p class="step-desc">When market conditions are met, the AI submits an <code style="font-family:var(--font-mono);font-size:0.8rem;color:var(--gold)">open_position</code> command using its <em>own</em> gas, supplying the <code style="font-family:var(--font-mono);font-size:0.8rem;color:var(--cyan)">AgentAuthTicket</code> as cryptographic proof of permission. The user's private key is never involved.</p>
+      </div>
+      <div class="lifecycle-step" data-step="4">
+        <div class="step-title">Ticket Burn &amp; Replay Protection <span class="tag tag-gold" style="font-size:0.65rem; margin-left:8px">snarkVM Circuit</span></div>
+        <p class="step-desc">Upon successful execution, the ticket Record is consumed (burned). It can never be reused. Block-height expiry provides a secondary time-bound invalidation layer.</p>
+      </div>
+    </div>
+
+    <h3><span class="num">4.2</span>Scoped Bitmask Architecture</h3>
+    <p>The core security mechanism is the <span class="tag tag-gold">permissions_bitmask</span> applied to each ticket. Each protocol action is assigned a binary flag — mathematical enforcement replaces policy trust.</p>
+
+    <table class="bitmask-table reveal">
+      <thead>
+        <tr>
+          <th>Bit Flag</th>
+          <th>Permission</th>
+          <th>Example Grant = 3 (0011)</th>
+          <th>Example Grant = 6 (0110)</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><span class="bit-val">0001</span></td>
+          <td>Open Position</td>
+          <td class="bit-allow">✓ Allowed</td>
+          <td class="bit-deny">✗ Denied</td>
+        </tr>
+        <tr>
+          <td><span class="bit-val">0010</span></td>
+          <td>Close Position</td>
+          <td class="bit-allow">✓ Allowed</td>
+          <td class="bit-allow">✓ Allowed</td>
+        </tr>
+        <tr>
+          <td><span class="bit-val">0100</span></td>
+          <td>Withdraw Collateral</td>
+          <td class="bit-deny">✗ Denied</td>
+          <td class="bit-allow">✓ Allowed</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="highlight-box">
+      <p>By granting an authorization of <strong>3 (0011)</strong>, the user allows the Agent to open and close trades, but <strong>mathematically denies</strong> the ability to withdraw funds. If the agent attempts a withdrawal, the snarkVM circuitry rejects the proof instantly — no policy check, no admin override needed.</p>
+    </div>
+
+    <h3><span class="num">4.3</span>Block-Height Expiry &amp; Replay Protection</h3>
+    <p>Every ticket contains an <span class="tag tag-cyan">expiry_block</span> constraint. If the network topology exceeds this height, the ticket is instantly invalidated by the circuit. Furthermore, tickets are <strong>consumed (burned) upon use</strong>, offering absolute protection against transaction replay attacks.</p>
+  </section>
+
+  <!-- SCALABILITY -->
+  <section class="section reveal" id="scalability">
+    <div class="section-header">
+      <span class="section-number">§ 05</span>
+      <div class="section-title-wrap">
+        <h2>Hybrid State Model</h2>
+        <p class="section-desc">Solving ZK concurrency · Public accounting, private operations</p>
+      </div>
+    </div>
+
+    <h3><span class="num">5.1</span>The Lock Contention Problem</h3>
+    <p>Zero-knowledge applications face significant hurdles regarding state concurrency. If 1,000 users attempt to trade simultaneously and the protocol relies on a single <span class="tag tag-gold">PoolState</span> Record to track available liquidity, <strong>999 transactions will fail</strong> due to record consumption collision — the fundamental UTXO concurrency problem.</p>
+
+    <h3><span class="num">5.2</span>Public Accounting, Private Operations</h3>
+    <p>AutoPerp resolves this via a <strong>Hybrid State Architecture</strong> that cleanly separates aggregate liquidity state from individual privacy:</p>
+
+    <div class="hybrid-model reveal">
+      <div class="hybrid-col public">
+        <div class="hybrid-col-title">Public Mappings</div>
+        <p style="font-size:0.8rem;color:var(--muted);margin-bottom:1rem;">Concurrent-friendly global aggregate state</p>
+        <div class="hybrid-item"><div class="hybrid-dot"></div> pool_balance</div>
+        <div class="hybrid-item"><div class="hybrid-dot"></div> pool_shares</div>
+        <div class="hybrid-item"><div class="hybrid-dot"></div> total_open_interest</div>
+        <div class="hybrid-item"><div class="hybrid-dot"></div> protocol_fee_accumulated</div>
+      </div>
+      <div class="hybrid-col private">
+        <div class="hybrid-col-title">Private Records</div>
+        <p style="font-size:0.8rem;color:var(--muted);margin-bottom:1rem;">Encrypted, individually owned state</p>
+        <div class="hybrid-item"><div class="hybrid-dot"></div> TraderVault (wallet balance)</div>
+        <div class="hybrid-item"><div class="hybrid-dot"></div> PositionRecord (open trade)</div>
+        <div class="hybrid-item"><div class="hybrid-dot"></div> liq_threshold (private)</div>
+        <div class="hybrid-item"><div class="hybrid-dot"></div> AgentAuthTicket</div>
+      </div>
+    </div>
+
+    <p>This decouples global liquidity from localized privacy, enabling AutoPerp to theoretically handle throughput parallel to <strong>Aleo's maximum consensus limits</strong> while maintaining complete individual position privacy.</p>
+
+    <h3><span class="num">5.3</span>Shielded Exit Liquidity</h3>
+    <p>Even when withdrawing final payouts, information leakage is prevented. The <span class="tag tag-purple">transfer_public_to_private</span> mechanism burns requisite public pooled tokens and mints a completely unlinked, 100% encrypted Private Token Record. The block explorer registers a reduction in pool liquidity — but the <strong>destination, user identity, and exact payout size are mathematically invisible</strong>.</p>
+  </section>
+
+  <div class="glow-line"></div>
+
+  <!-- MATHEMATICS -->
+  <section class="section reveal" id="mathematics">
+    <div class="section-header">
+      <span class="section-number">§ 07</span>
+      <div class="section-title-wrap">
+        <h2>Core Mathematics &amp; Economic Security</h2>
+        <p class="section-desc">Fixed-point precision · Funding rates · NAV-based LP issuance</p>
+      </div>
+    </div>
+
+    <p>Due to the absence of floating-point variables in zero-knowledge execution environments, AutoPerp enforces absolute precision through <strong>custom scaling factors</strong> — <span class="tag tag-gold">10000u64</span> represents 1.0 in all protocol arithmetic.</p>
+
+    <h3><span class="num">7.1</span>Oracle Safety Divergence Guard</h3>
+    <p>To defend against malicious client-side proof generation, AutoPerp's finalize blocks calculate the divergence margin and enforce strict circuit-level constraints:</p>
+
+    <div class="formula-block reveal">
+      <div class="formula-label">Oracle Divergence Check</div>
+      <div class="formula">
+        <span class="var">divergence</span> <span class="op"> = </span>
+        <span class="fraction">
+          <span class="numerator"><span class="var">|execution_price − oracle_price|</span> <span class="op">×</span> <span class="var">10000</span></span>
+          <span class="denominator"><span class="var">oracle_price</span></span>
+        </span>
+      </div>
+      <p class="formula-desc">
+        Constraint: <span style="color:var(--cyan); font-family:var(--font-mono)">divergence ≤ 100</span> for public ops (1%) &nbsp;·&nbsp;
+        <span style="color:var(--purple); font-family:var(--font-mono)">divergence ≤ 500</span> for private ops (5%)
+      </p>
+    </div>
+
+    <h3><span class="num">7.2</span>Dynamic Funding Rates</h3>
+    <p>Funding rates natively balance Long and Short skew by applying real-time PnL pressure. During position closure, the funding value is computed from the oracle's rate and direction bit:</p>
+
+    <div class="formula-block reveal">
+      <div class="formula-label">Funding Value Calculation</div>
+      <div class="formula">
+        <span class="var">funding_value</span>
+        <span class="op"> = </span>
+        <span class="fraction">
+          <span class="numerator"><span class="var">position_size</span> <span class="op">×</span> <span class="var">funding_rate</span></span>
+          <span class="denominator"><span class="var">100000</span></span>
+        </span>
+      </div>
+      <p class="formula-desc">Depending on <span style="color:var(--gold); font-family:var(--font-mono)">funding_direction</span> fetched from the oracle, this value is added to or subtracted from vault collateral — ensuring total economic realism.</p>
+    </div>
+
+    <h3><span class="num">7.3</span>NAV-Based LP Share Issuance</h3>
+    <p>Static 1:1 LP token minting creates vulnerabilities where malicious actors deposit immediately before massive pool liquidations, illegitimately claiming profits. AutoPerp implements <strong>Net Asset Value (NAV) minting</strong> to close this vector.</p>
+
+    <div class="formula-block reveal">
+      <div class="formula-label">Minted LP Shares (Anti-Dilution NAV Formula)</div>
+      <div class="formula" style="font-size:1.3rem;">
+        <span class="var">M</span>
+        <span class="op"> = </span>
+        <span class="fraction">
+          <span class="numerator"><span class="var">D</span> <span class="op">×</span> <span class="var">S</span></span>
+          <span class="denominator"><span class="var">B</span></span>
+        </span>
+      </div>
+      <p class="formula-desc">
+        where <span style="color:var(--gold); font-family:var(--font-mono)">D</span> = deposit amount, &nbsp;
+        <span style="color:var(--gold); font-family:var(--font-mono)">S</span> = current total pool shares, &nbsp;
+        <span style="color:var(--gold); font-family:var(--font-mono)">B</span> = current pool balance.<br/>
+        Share purchasing power dynamically adjusts to the exact state of pool liquidity depth.
+      </p>
+    </div>
+
+    <div class="code-block reveal">
+      <div class="code-header">
+        <div class="code-dot r"></div><div class="code-dot y"></div><div class="code-dot g"></div>
+        <span class="code-filename">autoperp_core_v9.aleo — NAV share minting</span>
+      </div>
+      <div class="code-body">
+<span class="code-line"><span class="code-comment">// Anti-dilution NAV-based LP share issuance</span></span>
+<span class="code-line"><span class="code-keyword">let</span> pool_balance: <span class="code-type">u64</span> <span class="code-op">=</span> <span class="code-type">Mapping</span>::<span class="code-fn">get_or_use</span>(pool_state, <span class="code-number">0u8</span>, <span class="code-number">0u64</span>);</span>
+<span class="code-line"><span class="code-keyword">let</span> total_shares: <span class="code-type">u64</span> <span class="code-op">=</span> <span class="code-type">Mapping</span>::<span class="code-fn">get_or_use</span>(pool_state, <span class="code-number">1u8</span>, <span class="code-number">0u64</span>);</span>
+<span class="code-line"></span>
+<span class="code-line"><span class="code-comment">// M = (D × S) / B  — pool inception guard</span></span>
+<span class="code-line"><span class="code-keyword">let</span> minted_shares: <span class="code-type">u64</span> <span class="code-op">=</span> <span class="code-keyword">if</span> total_shares <span class="code-op">==</span> <span class="code-number">0u64</span> {</span>
+<span class="code-line">  deposit_amount</span>
+<span class="code-line">} <span class="code-keyword">else</span> {</span>
+<span class="code-line">  (deposit_amount <span class="code-op">*</span> total_shares) <span class="code-op">/</span> pool_balance</span>
+<span class="code-line">};</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ROADMAP -->
+  <section class="section reveal" id="roadmap">
+    <div class="section-header">
+      <span class="section-number">§ 08</span>
+      <div class="section-title-wrap">
+        <h2>Future Roadmap</h2>
+        <p class="section-desc">ZKML integration · Yield-bearing collateral · Protocol evolution</p>
+      </div>
+    </div>
+
+    <div class="roadmap reveal">
+      <div class="roadmap-item zkml">
+        <div class="roadmap-phase">Phase II — Research</div>
+        <div class="roadmap-title">Zero-Knowledge Machine Learning (ZKML)</div>
+        <p class="roadmap-desc">Future AutoPerp iterations will require AI nodes to cryptographically <em>prove</em> that trade parameters were generated by executing the user's exact strategy prompt within a <strong>verifiable neural net circuit</strong>. This shifts trust from the agent entirely onto the mathematics — the AI's reasoning becomes a cryptographic commitment.</p>
+        <br/>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:0.5rem;">
+          <span class="tag tag-cyan">zk-SNARK inference</span>
+          <span class="tag tag-purple">Provable LLM execution</span>
+        </div>
+      </div>
+      <div class="roadmap-item yield">
+        <div class="roadmap-phase">Phase III — Protocol Upgrade</div>
+        <div class="roadmap-title">Yield-Bearing Collateral</div>
+        <p class="roadmap-desc">AutoPerp plans to transition base collateral from standard stablecoins to <strong>Liquid Staking Derivatives (LSDs)</strong>. Liquidity providers will earn Maker/Taker spread fees and funding rates while simultaneously earning base network consensus yields — vastly increasing capital efficiency.</p>
+        <br/>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:0.5rem;">
+          <span class="tag tag-gold">LSD collateral</span>
+          <span class="tag tag-green">Compound yield</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Conclusion -->
+    <div style="margin-top:4rem;" class="reveal">
+      <h3 style="margin-top:0"><span class="num">09</span>Conclusion</h3>
+      <div class="abstract-banner">
+        <p class="abstract-text">
+          AutoPerp achieves what was previously considered contradictory: <strong>highly scalable, mathematical derivatives trading secured unequivocally by zero-knowledge privacy.</strong> Through Leo 4.0 cross-program integrations, resolution of single-owner record contention architectures, and the pioneering AgentAuth framework, AutoPerp establishes the first truly secure, private, and mathematically trustless environment for both human and AI-automated capital deployment.
+        </p>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<!-- FOOTER -->
+<footer>
+  <div class="footer-brand">
+    <h3>AutoPerp</h3>
+    <p>Zero-Knowledge Perpetual Exchange &amp; Trustless AI Automation Protocol</p>
+    <br/>
+    <p style="font-family:var(--font-mono);font-size:0.65rem;color:var(--muted2)">Protocol Architecture v9.0<br/>Built on Aleo · Leo 4.0</p>
+  </div>
+  <div class="footer-col">
+    <h5>Protocol Contracts</h5>
+    <ul>
+      <li>autoperp_core_v9.aleo <span>CORE</span></li>
+      <li>autoperp_core_private_v9.aleo <span>PRIVATE</span></li>
+      <li>autoperp_oracle_v2.aleo <span>ORACLE</span></li>
+      <li>autoperp_agent_v3.aleo <span>AGENT</span></li>
+      <li>test_usdcx_stablecoin.aleo <span>TOKEN</span></li>
+    </ul>
+  </div>
+  <div class="footer-col">
+    <h5>Whitepaper Sections</h5>
+    <ul>
+      <li>§00 Abstract <span>↑</span></li>
+      <li>§01 Introduction <span>↑</span></li>
+      <li>§02 Cryptography <span>↑</span></li>
+      <li>§03 Architecture <span>↑</span></li>
+      <li>§04 AgentAuth <span>↑</span></li>
+      <li>§05 Scalability <span>↑</span></li>
+      <li>§07 Mathematics <span>↑</span></li>
+    </ul>
+  </div>
+</footer>
+
+<div class="footer-bottom">
+  <p>AutoPerp Protocol v9.0 — Whitepaper</p>
+  <p style="color:var(--muted2);">Built natively on Aleo · Powered by snarkVM &amp; Leo 4.0</p>
+</div>
+
+<script>
+  // ── SCROLL REVEAL ──
+  const observer = new IntersectionObserver((entries) => {
+    entries.forEach(e => {
+      if (e.isIntersecting) {
+        e.target.classList.add('visible');
+      }
+    });
+  }, { threshold: 0.1 });
+
+  document.querySelectorAll('.reveal').forEach(el => observer.observe(el));
+
+  // ── TOC DOTS ──
+  const sections = ['hero','abstract','intro','crypto','architecture','agentauth','scalability','mathematics','roadmap'];
+  const dots = document.querySelectorAll('.toc-dot');
+
+  function scrollToId(id) {
+    document.getElementById(id)?.scrollIntoView({ behavior: 'smooth' });
+  }
+
+  const sectionObserver = new IntersectionObserver((entries) => {
+    entries.forEach(entry => {
+      if (entry.isIntersecting) {
+        const idx = sections.indexOf(entry.target.id);
+        if (idx >= 0) {
+          dots.forEach((d, i) => d.classList.toggle('active', i === idx));
+        }
+      }
+    });
+  }, { threshold: 0.4 });
+
+  sections.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) sectionObserver.observe(el);
+  });
+
+  // ── STAGGER CARDS ──
+  document.querySelectorAll('.card-grid').forEach(grid => {
+    grid.querySelectorAll('.card').forEach((card, i) => {
+      card.style.animationDelay = `${i * 0.1}s`;
+    });
+  });
+</script>
+</body>
+</html>
