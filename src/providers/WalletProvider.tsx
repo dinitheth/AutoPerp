@@ -55,10 +55,8 @@ const WalletProvider = ({ children }: WalletProviderProps) => {
       network={Network.TESTNET}
       decryptPermission={DecryptPermission.UponRequest}
       programs={[
-        PROGRAMS.CORE,
         PRIVATE_CORE_PROGRAM,
         PUBLIC_CORE_PROGRAM,
-        PROGRAMS.POOL,
         PROGRAMS.AGENT,
         PROGRAMS.ORACLE,
         PROGRAMS.USDCX,

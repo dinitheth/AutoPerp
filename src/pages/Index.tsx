@@ -56,50 +56,118 @@ const Index = () => {
 
       {/* Hero with background animation */}
       <section className="relative pt-32 pb-20 md:pt-44 md:pb-32 overflow-hidden">
-        {/* Animated background elements */}
-        <div className="absolute inset-0 pointer-events-none">
+        {/* Premium animated background */}
+        <div className="absolute inset-0 pointer-events-none overflow-hidden">
+          {/* Aurora gradient wave */}
           <motion.div
-            className="absolute top-1/4 left-1/4 w-[600px] h-[600px] rounded-full"
+            className="absolute -top-1/2 left-0 right-0 h-[200%]"
             style={{
-              background: "radial-gradient(circle, hsl(211 100% 50% / 0.08) 0%, transparent 70%)",
+              background: "conic-gradient(from 180deg at 50% 50%, hsl(211 100% 50% / 0.06) 0deg, hsl(270 80% 50% / 0.04) 60deg, transparent 120deg, hsl(340 80% 50% / 0.03) 180deg, transparent 240deg, hsl(211 100% 50% / 0.06) 360deg)",
             }}
-            animate={{
-              x: [0, 40, -20, 0],
-              y: [0, -30, 20, 0],
-              scale: [1, 1.1, 0.95, 1],
-            }}
-            transition={{ duration: 12, repeat: Infinity, ease: "easeInOut" }}
+            animate={{ rotate: [0, 360] }}
+            transition={{ duration: 40, repeat: Infinity, ease: "linear" }}
           />
+
+          {/* Primary glow orb */}
           <motion.div
-            className="absolute bottom-1/4 right-1/4 w-[500px] h-[500px] rounded-full"
-            style={{
-              background: "radial-gradient(circle, hsl(211 100% 50% / 0.05) 0%, transparent 70%)",
-            }}
+            className="absolute top-1/4 left-1/3 w-[700px] h-[700px] rounded-full blur-3xl"
+            style={{ background: "radial-gradient(circle, hsl(211 100% 60% / 0.12) 0%, transparent 70%)" }}
             animate={{
-              x: [0, -30, 20, 0],
-              y: [0, 40, -20, 0],
-              scale: [1, 0.9, 1.1, 1],
+              x: [0, 60, -40, 0],
+              y: [0, -50, 30, 0],
+              scale: [1, 1.15, 0.9, 1],
             }}
-            transition={{ duration: 15, repeat: Infinity, ease: "easeInOut" }}
+            transition={{ duration: 16, repeat: Infinity, ease: "easeInOut" }}
           />
+
+          {/* Secondary glow orb — purple accent */}
           <motion.div
-            className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[800px] rounded-full"
-            style={{
-              background: "radial-gradient(circle, hsl(211 100% 50% / 0.03) 0%, transparent 60%)",
-            }}
+            className="absolute bottom-1/3 right-1/4 w-[500px] h-[500px] rounded-full blur-3xl"
+            style={{ background: "radial-gradient(circle, hsl(270 90% 60% / 0.08) 0%, transparent 70%)" }}
             animate={{
-              scale: [1, 1.2, 1],
-              opacity: [0.5, 1, 0.5],
+              x: [0, -40, 30, 0],
+              y: [0, 50, -30, 0],
+              scale: [1, 0.85, 1.15, 1],
             }}
-            transition={{ duration: 8, repeat: Infinity, ease: "easeInOut" }}
+            transition={{ duration: 20, repeat: Infinity, ease: "easeInOut" }}
           />
-          {/* Grid overlay */}
+
+          {/* Tertiary glow — warm accent */}
+          <motion.div
+            className="absolute top-2/3 left-1/6 w-[400px] h-[400px] rounded-full blur-3xl"
+            style={{ background: "radial-gradient(circle, hsl(340 80% 55% / 0.05) 0%, transparent 70%)" }}
+            animate={{
+              scale: [1, 1.3, 1],
+              opacity: [0.3, 0.7, 0.3],
+            }}
+            transition={{ duration: 10, repeat: Infinity, ease: "easeInOut" }}
+          />
+
+          {/* Floating particles */}
+          {Array.from({ length: 30 }).map((_, i) => (
+            <motion.div
+              key={i}
+              className="absolute w-1 h-1 rounded-full bg-primary/20"
+              style={{
+                left: `${5 + (i * 3.1) % 90}%`,
+                top: `${10 + (i * 7.3) % 80}%`,
+              }}
+              animate={{
+                y: [0, -20 - (i % 3) * 15, 0],
+                opacity: [0.1, 0.6, 0.1],
+                scale: [1, 1.5, 1],
+              }}
+              transition={{
+                duration: 4 + (i % 5) * 1.5,
+                repeat: Infinity,
+                delay: (i * 0.3) % 4,
+                ease: "easeInOut",
+              }}
+            />
+          ))}
+
+          {/* Animated grid with pulse */}
           <div
-            className="absolute inset-0 opacity-[0.03]"
+            className="absolute inset-0 opacity-[0.04]"
             style={{
               backgroundImage: "linear-gradient(hsl(211 100% 50%) 1px, transparent 1px), linear-gradient(90deg, hsl(211 100% 50%) 1px, transparent 1px)",
               backgroundSize: "60px 60px",
             }}
+          />
+
+          {/* Candlestick silhouettes */}
+          <div className="absolute bottom-0 left-0 right-0 h-40 opacity-[0.03]">
+            <svg viewBox="0 0 1200 160" className="w-full h-full" preserveAspectRatio="none">
+              <motion.path
+                d="M0,140 L50,120 L100,100 L150,110 L200,80 L250,70 L300,90 L350,60 L400,50 L450,65 L500,45 L550,55 L600,40 L650,50 L700,35 L750,45 L800,30 L850,40 L900,25 L950,35 L1000,20 L1050,30 L1100,15 L1150,25 L1200,10"
+                fill="none"
+                stroke="hsl(211 100% 50%)"
+                strokeWidth="2"
+                initial={{ pathLength: 0 }}
+                animate={{ pathLength: 1 }}
+                transition={{ duration: 3, ease: "easeOut" }}
+              />
+              <motion.path
+                d="M0,140 L50,120 L100,100 L150,110 L200,80 L250,70 L300,90 L350,60 L400,50 L450,65 L500,45 L550,55 L600,40 L650,50 L700,35 L750,45 L800,30 L850,40 L900,25 L950,35 L1000,20 L1050,30 L1100,15 L1150,25 L1200,10 L1200,160 L0,160 Z"
+                fill="url(#chartGradient)"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ duration: 2, delay: 1 }}
+              />
+              <defs>
+                <linearGradient id="chartGradient" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="hsl(211 100% 50%)" stopOpacity="0.15" />
+                  <stop offset="100%" stopColor="hsl(211 100% 50%)" stopOpacity="0" />
+                </linearGradient>
+              </defs>
+            </svg>
+          </div>
+
+          {/* Scan line */}
+          <motion.div
+            className="absolute left-0 right-0 h-px bg-gradient-to-r from-transparent via-primary/20 to-transparent"
+            animate={{ top: ["0%", "100%", "0%"] }}
+            transition={{ duration: 12, repeat: Infinity, ease: "linear" }}
           />
         </div>
 
@@ -148,7 +216,7 @@ const Index = () => {
         <div className="container">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-6 md:gap-8">
             {[
-              { label: "Programs Deployed", value: "5" },
+              { label: "Programs Deployed", value: "4" },
               { label: "Supported Markets", value: "3" },
               { label: "Network", value: "Aleo Testnet" },
               { label: "Liquidations Automated", value: "Live" },

@@ -2,7 +2,7 @@ import { useState } from "react";
 import { cn } from "@/lib/utils";
 import { TrendingUp, TrendingDown, ChevronDown } from "lucide-react";
 
-const MARKETS = ["BTC-USD", "ETH-USD", "ALEO-USD"] as const;
+const MARKETS = ["BTC-USD", "ETH-USD"] as const;
 const DIRECTIONS = ["long", "short"] as const;
 const LEVERAGES = [1, 2, 5, 10, 25, 50] as const;
 

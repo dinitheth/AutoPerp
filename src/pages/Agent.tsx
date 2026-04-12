@@ -5,9 +5,11 @@ import {
   BarChart3,
   Bot,
   HelpCircle,
+  Key,
   Loader2,
   Send,
   Shield,
+  ShieldCheck,
   TrendingUp,
   Wallet,
 } from "lucide-react";
@@ -25,12 +27,14 @@ import { useAleoTransaction, API_BASE, MARKET_IDS, toPrice, toUsdcx } from "@/ho
 import { addOrder, addTradeEventPersistent, newId } from "@/lib/portfolioStore";
 import {
   LEGACY_SETTLEMENT_MESSAGE,
+  PROGRAMS,
   PUBLIC_CORE_PROGRAM,
   REAL_SETTLEMENT_AVAILABLE,
   getStoredTradingMode,
   TRADING_MODE_STORAGE_KEY,
   type TradingMode,
 } from "@/lib/protocol";
+import { useAgentAuth, AGENT_PERMISSIONS, permissionLabels } from "@/hooks/useAgentAuth";
 import { toast } from "sonner";
 
 const suggestions = [
@@ -58,15 +62,26 @@ const suggestions = [
 
 const Agent = () => {
   const [input, setInput] = useState("");
+  const [agentExecuteInput, setAgentExecuteInput] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
   const stickToBottomRef = useRef(true);
   const [suggestionsDismissed, setSuggestionsDismissed] = useState(false);
   const lastTradeStatusRef = useRef<"pending" | "executed" | "failed" | null>(null);
+  const [showAuthPanel, setShowAuthPanel] = useState(false);
 
   const { prices, getPrice } = usePrices();
   const { usdcxBalance, creditsBalance, refetch: refetchBalance } = useUsdcxBalance();
   const { connected, address } = useWallet();
   const { execute, loading: txLoading, getLastError } = useAleoTransaction();
+  const {
+    activeAuths,
+    receipts,
+    loading: authLoading,
+    grantAuth,
+    executeAgentAction,
+    revokeAuth,
+    getAgentExecutionCount,
+  } = useAgentAuth();
   const AGENT_CORE_PROGRAM = PUBLIC_CORE_PROGRAM;
   
   const [tradingMode, setTradingMode] = useState<TradingMode>(() => getStoredTradingMode());
@@ -182,10 +197,27 @@ const Agent = () => {
       return;
     }
 
+    // Use oracle price for on-chain entry_price to pass the V9 divergence check
+    const { fetchOraclePrice } = await import("@/hooks/useAleoTransaction");
+    const marketIdNum = parseInt(MARKET_IDS[tradeParams.market] ?? "0");
+    let onChainEntryPrice = currentPrice;
+    try {
+      const oraclePrice = await fetchOraclePrice(marketIdNum);
+      if (oraclePrice > 0) {
+        onChainEntryPrice = oraclePrice;
+      } else {
+        toast.error(`Oracle price unavailable for ${tradeParams.market}. Cannot open position.`);
+        rejectAction(msgId);
+        return;
+      }
+    } catch {
+      // fall through with live price
+    }
+
     const directionVal = tradeParams.direction === "long" ? "0u8" : "1u8";
     const sl = tradeParams.stopLoss ? toPrice(tradeParams.stopLoss) : "0u64";
     const tp = tradeParams.takeProfit ? toPrice(tradeParams.takeProfit) : "0u64";
-    const paramsInput = `{ market_id: ${marketId}, direction: ${directionVal}, collateral: ${toUsdcx(tradeParams.collateral)}, leverage: ${tradeParams.leverage}u64, entry_price: ${toPrice(currentPrice)}, stop_loss: ${sl}, take_profit: ${tp} }`;
+    const paramsInput = `{ market_id: ${marketId}, direction: ${directionVal}, collateral: ${toUsdcx(tradeParams.collateral)}, leverage: ${tradeParams.leverage}u64, entry_price: ${toPrice(onChainEntryPrice)}, stop_loss: ${sl}, take_profit: ${tp} }`;
     let result = null;
     const parseMappingBalance = (raw: string): number => {
       const structMatch = raw.match(/balance:\s*([\d_]+)u(?:64|128)/i);
@@ -228,7 +260,7 @@ const Agent = () => {
     }
 
     if (neededDeposit > 0) {
-      toast.info(`Locking ${neededDeposit.toFixed(2)} USDCx as collateral (public mode) - approve in Shield...`);
+      toast.info(`Locking ${neededDeposit.toFixed(2)} USDCx as collateral — approve in Shield...`);
       const depositResult = await execute(AGENT_CORE_PROGRAM, "deposit_collateral", [toUsdcx(neededDeposit)]);
       if (!depositResult) {
         const err = (getLastError() ?? "Unknown error").trim();
@@ -246,12 +278,45 @@ const Agent = () => {
         appendAgentMessage(`Transaction failed while locking collateral: ${err}`);
         return;
       }
+
+      // Wait for deposit to confirm on-chain before opening position
+      toast.info("Waiting for collateral deposit to confirm on-chain...");
+      let depositConfirmed = false;
+      for (let attempt = 0; attempt < 12; attempt++) {
+        await new Promise(r => setTimeout(r, 5000)); // poll every 5s
+        try {
+          const vres = await fetch(`${API_BASE}/program/${AGENT_CORE_PROGRAM}/mapping/vault/${address}`);
+          if (vres.ok) {
+            const vraw = await vres.text();
+            const confirmedBal = parseMappingBalance(vraw) / 1_000_000;
+            if (confirmedBal >= tradeParams.collateral * 0.95) { // within 5% tolerance
+              depositConfirmed = true;
+              break;
+            }
+          }
+        } catch { /* retry */ }
+      }
+
+      if (!depositConfirmed) {
+        toast.error("Collateral deposit timed out. Please try again — your deposit may still be processing.");
+        return;
+      }
+      toast.success("Collateral confirmed on-chain!");
       setTimeout(() => refetchBalance(), 2500);
-      setTimeout(() => refetchBalance(), 8000);
     }
 
-    toast.info("Opening position on Aleo (public mode) - approve in Shield...");
-    result = await execute(AGENT_CORE_PROGRAM, "open_position", [paramsInput, address]);
+    // Fetch next position ID from on-chain before opening
+    let positionIdInput = "1u64";
+    try {
+      const { fetchNextPositionId } = await import("@/hooks/useAleoTransaction");
+      const mid = parseInt(MARKET_IDS[tradeParams.market] ?? "0");
+      positionIdInput = await fetchNextPositionId(AGENT_CORE_PROGRAM, mid);
+    } catch {
+      positionIdInput = "1u64";
+    }
+
+    toast.info("Opening position on Aleo — approve in Shield...");
+    result = await execute(AGENT_CORE_PROGRAM, "open_position", [paramsInput, address, positionIdInput]);
 
     if (result) {
       markActionExecuted(msgId);
@@ -284,10 +349,22 @@ const Agent = () => {
         txId: txHash,
         ts: Date.now(),
       }, address);
+
+      // Tag this position as agent-opened so the Trade page can show a badge
+      try {
+        const posIdNum = positionIdInput.replace(/u\d+$/i, "");
+        const key = `autoperp:agent-positions:${address.toLowerCase()}`;
+        const existing = JSON.parse(localStorage.getItem(key) ?? "[]") as string[];
+        if (!existing.includes(posIdNum)) {
+          existing.push(posIdNum);
+          localStorage.setItem(key, JSON.stringify(existing));
+        }
+      } catch { /* non-critical */ }
+
       setTimeout(() => window.dispatchEvent(new Event("autoperp:positions-changed")), 2500);
 
       appendAgentMessage(
-        `Trade executed on-chain.\n\nAleo TX Hash: \`${txHash}\`\n\n[View on Aleo Explorer](${explorerUrl})\n\nYour position is now live.`,
+        `✅ **Trade executed on-chain successfully!**\n\nAleo TX Hash: \`${txHash}\`\n\n[View on Aleo Explorer](${explorerUrl})\n\nYour position is now active — head to the **[Trade page](/trade)** to monitor it in real-time under the **Positions** tab.`,
       );
       toast.success("Transaction confirmed on Aleo blockchain!", {
         description: `TX: ${txHash.slice(0, 20)}...`,
@@ -296,6 +373,16 @@ const Agent = () => {
           onClick: () => window.open(explorerUrl, "_blank"),
         },
       });
+
+      // Grant AgentAuth after trade succeeds (non-blocking background call)
+      grantAuth({
+        agentAddress: address,
+        positionHash: String(Math.floor(Math.random() * 1_000_000_000)),
+        permissions: AGENT_PERMISSIONS.ALL,
+        maxSlippageBps: 100,
+        marketId: parseInt(MARKET_IDS[tradeParams.market] ?? "0"),
+        expiryBlockHeight: Math.floor(Date.now() / 1000) + 100000,
+      }).catch(() => console.warn("AgentAuth grant skipped (non-critical)"));
     } else {
       const err = (getLastError() ?? "Unknown error").trim();
       const e = err.toLowerCase();
@@ -324,7 +411,41 @@ const Agent = () => {
     rejectAction,
     usdcxBalance,
     AGENT_CORE_PROGRAM,
+    grantAuth,
   ]);
+
+  const handleExecuteAgentAction = useCallback(async (msgId: string) => {
+    if (!agentExecuteInput.trim() || !connected || !address) {
+      toast.error("Please paste your AgentAuth record first");
+      return;
+    }
+
+    toast.info("Executing Agent Action on Aleo - approve in Shield...");
+    // Attempt standard open market parameters simulating AI logic
+    const currentPrice = getPrice("BTC-USD")?.price ?? 60000;
+    
+    try {
+      const receipt = await executeAgentAction({
+        authRecordInput: agentExecuteInput.trim(),
+        actionType: 0, // open
+        executionPrice: currentPrice,
+      });
+
+      if (receipt) {
+        markActionExecuted(msgId);
+        setAgentExecuteInput("");
+        appendAgentMessage(`Agent Executed Trade Successfully!\n\nReceipt TX Hash: \`${receipt.txId}\`\n\nI have consumed your AgentAuth record and generated a cryptographic Execution Receipt.`);
+        toast.success("Agent Action Confirmed", { description: "Cryptographic receipt generated." });
+      } else {
+        const err = getLastError();
+        rejectAction(msgId);
+        appendAgentMessage(`Agent Execution Failed: ${err}`);
+      }
+    } catch (err: any) {
+      rejectAction(msgId);
+      appendAgentMessage(`Agent Execution Failed: ${err?.message || "Unknown error"}`);
+    }
+  }, [agentExecuteInput, connected, address, executeAgentAction, getPrice, markActionExecuted, rejectAction, appendAgentMessage, getLastError]);
 
   // Note: Shield wallet approvals are most reliable when triggered by a user gesture (button click).
 
@@ -374,22 +495,7 @@ const Agent = () => {
     void handleConfirm(actionMsgId, params);
   };
 
-  if (tradingMode === "private") {
-    return (
-      <WalletGate pageName="AutoPerp Agent">
-        <div className="flex min-h-screen flex-col bg-background">
-          <Header />
-          <main className="flex-1 container pt-24 pb-20 flex flex-col justify-center items-center text-center">
-            <Bot className="h-16 w-16 text-muted-foreground/50 mb-6" />
-            <h2 className="text-2xl font-semibold mb-2 text-foreground">Agent Unavailable</h2>
-            <p className="text-muted-foreground max-w-md">
-              The AutoPerp Agent requires Public Mode for on-chain execution and settlement. Please switch back to Public Mode using the toggle in the navigation bar.
-            </p>
-          </main>
-        </div>
-      </WalletGate>
-    );
-  }
+
 
   return (
     <WalletGate pageName="the Agent">
@@ -405,7 +511,7 @@ const Agent = () => {
               <div>
                 <p className="text-sm font-medium text-foreground">AutoPerp Agent</p>
                 <p className="text-[10px] text-muted-foreground">
-                  Powered by Gemini AI - assisted on-chain execution - AgentAuth permission primitives
+                  Powered by Gemini AI — on-chain AgentAuth ({PROGRAMS.AGENT}) — oracle-validated execution
                 </p>
               </div>
               <div className="ml-auto flex items-center gap-3">
@@ -414,13 +520,91 @@ const Agent = () => {
                     {usdcxBalance} USDCx
                   </span>
                 )}
+                <button
+                  onClick={() => setShowAuthPanel(!showAuthPanel)}
+                  className={cn(
+                    "flex items-center gap-1.5 px-2 py-1 rounded-md text-[10px] font-medium transition-colors",
+                    showAuthPanel
+                      ? "bg-primary/20 text-primary border border-primary/30"
+                      : "bg-card border border-border text-muted-foreground hover:text-foreground",
+                  )}
+                >
+                  <Key className="h-3 w-3" />
+                  Permissions{activeAuths.filter((a) => a.isActive).length > 0 && (
+                    <span className="ml-1 px-1 py-0.5 rounded bg-success/20 text-success text-[9px]">
+                      {activeAuths.filter((a) => a.isActive).length}
+                    </span>
+                  )}
+                </button>
                 <div className="flex items-center gap-1.5">
-                  <Shield className="h-3 w-3 text-success" />
-                  <span className="text-[10px] text-success">Agent uses public mode</span>
+                  <ShieldCheck className="h-3 w-3 text-success" />
+                  <span className="text-[10px] text-success">AgentAuth active</span>
                 </div>
               </div>
             </div>
           </div>
+
+          {/* AgentAuth Permissions Panel */}
+          {showAuthPanel && (
+            <div className="border-b border-border px-4 py-3 bg-card/50 shrink-0">
+              <div className="container max-w-3xl">
+                <div className="flex items-center gap-2 mb-2">
+                  <Key className="h-3.5 w-3.5 text-primary" />
+                  <span className="text-xs font-medium text-foreground">AgentAuth Permissions</span>
+                  <span className="text-[10px] text-muted-foreground">({PROGRAMS.AGENT})</span>
+                </div>
+                {activeAuths.length === 0 ? (
+                  <p className="text-[10px] text-muted-foreground">
+                    No active agent authorizations. Permissions are granted automatically when you execute trades via the agent.
+                  </p>
+                ) : (
+                  <div className="space-y-1.5">
+                    {activeAuths.map((auth) => (
+                      <div
+                        key={auth.id}
+                        className="flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-lg border border-border bg-card text-[10px]"
+                      >
+                        <div className="flex items-center gap-2">
+                          <span
+                            className={cn(
+                              "px-1.5 py-0.5 rounded font-medium",
+                              auth.isActive
+                                ? "bg-success/10 text-success"
+                                : "bg-muted text-muted-foreground",
+                            )}
+                          >
+                            {auth.isActive ? "Active" : "Used"}
+                          </span>
+                          <span className="text-muted-foreground">
+                            Permissions: {permissionLabels(auth.permissions).join(", ")}
+                          </span>
+                          <span className="text-muted-foreground">Slippage: {auth.maxSlippage / 100}%</span>
+                        </div>
+                        {auth.isActive && (
+                          <button
+                            onClick={() => revokeAuth(auth.id)}
+                            className="px-2 py-0.5 rounded text-destructive border border-destructive/30 hover:bg-destructive/10 transition-colors"
+                          >
+                            Revoke
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {receipts.length > 0 && (
+                  <div className="mt-2 border-t border-border/50 pt-2">
+                    <p className="text-[10px] font-medium text-foreground mb-1">Execution Receipts</p>
+                    {receipts.slice(0, 3).map((r, i) => (
+                      <div key={i} className="text-[10px] text-muted-foreground font-mono">
+                        Action #{r.actionType} @ ${r.executionPrice.toFixed(2)} — TX: {r.txId.slice(0, 16)}...
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
 
           {!REAL_SETTLEMENT_AVAILABLE && (
             <div className="border-b border-warning/30 bg-warning/10 px-4 py-2 text-xs text-warning shrink-0">
@@ -499,7 +683,7 @@ const Agent = () => {
                         <p className="text-xs text-muted-foreground font-mono leading-relaxed">
                           {msg.action.details}
                         </p>
-                        {msg.action.status === "pending" && (
+                        {msg.action.status === "pending" && msg.action.type === "OPEN_POSITION" && (
                           <div className="flex gap-2 mt-3">
                             <button
                               onClick={() => handleConfirm(msg.id)}
@@ -514,6 +698,32 @@ const Agent = () => {
                             >
                               Reject
                             </button>
+                          </div>
+                        )}
+                        {msg.action.status === "pending" && msg.action.type === "EXECUTE_AGENT_ACTION" && (
+                          <div className="flex flex-col gap-2 mt-3">
+                            <input
+                              type="text"
+                              value={agentExecuteInput}
+                              onChange={(e) => setAgentExecuteInput(e.target.value)}
+                              placeholder="Paste encrypted AgentAuth record ({ owner: aleo1..., ... })"
+                              className="h-8 px-3 text-[10px] bg-background border border-border rounded-lg placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                            />
+                            <div className="flex gap-2">
+                              <button
+                                onClick={() => handleExecuteAgentAction(msg.id)}
+                                disabled={authLoading || !agentExecuteInput.trim()}
+                                className="h-7 px-3 flex-1 text-[10px] font-medium rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50"
+                              >
+                                {authLoading ? "Executing..." : "Sign & Execute Agent Action"}
+                              </button>
+                              <button
+                                onClick={() => rejectAction(msg.id)}
+                                className="h-7 px-3 text-[10px] font-medium rounded-lg border border-border text-muted-foreground hover:text-foreground transition-colors"
+                              >
+                                Cancel
+                              </button>
+                            </div>
                           </div>
                         )}
                       </div>

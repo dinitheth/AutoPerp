@@ -1,7 +1,7 @@
 import ReactMarkdown from "react-markdown";
 import { cn } from "@/lib/utils";
 
-const MARKET_PAIRS = ["BTC-USD", "ETH-USD", "ALEO-USD"];
+const MARKET_PAIRS = ["BTC-USD", "ETH-USD"];
 
 interface AgentMessageContentProps {
   content: string;

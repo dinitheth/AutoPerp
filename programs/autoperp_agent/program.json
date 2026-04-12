@@ -1,9 +1,15 @@
 {
-  "program": "autoperp_agent_v2.aleo",
-  "version": "0.1.0",
-  "description": "AutoPerp Agent - AgentAuth delegation with scoped, revocable permissions",
+  "program": "autoperp_agent_v3.aleo",
+  "version": "3.0.0",
+  "description": "AutoPerp Agent V3 - Scoped, revocable agent delegation with oracle-validated slippage checks and single-use enforcement",
   "license": "MIT",
-  "leo": "3.4.0",
-  "dependencies": null,
+  "leo": "4.0.0",
+  "dependencies": [
+    {
+      "name": "autoperp_oracle_v2.aleo",
+      "location": "network",
+      "network": "testnet"
+    }
+  ],
   "dev_dependencies": null
 }

@@ -5,7 +5,7 @@ import useUsdcxBalance from "@/hooks/useUsdcxBalance";
 import usePrices from "@/hooks/usePrices";
 import { useWallet } from "@provablehq/aleo-wallet-adaptor-react";
 import { PROGRAMS } from "@/hooks/useAleoTransaction";
-import { PRIVATE_CORE_PROGRAM } from "@/lib/protocol";
+import { PRIVATE_CORE_PROGRAM, PUBLIC_CORE_PROGRAM } from "@/lib/protocol";
 import { cn } from "@/lib/utils";
 import { isLikelyPositionRecord, isRecordSpent, parseAleoPositionRecord } from "@/lib/positionRecord";
 import { requestProgramRecordsAny } from "@/lib/walletRecords";
@@ -57,12 +57,14 @@ const MAKER_FEE_PCT = 0.015;
 const MARKET_NAMES: Record<string, string> = {
   "0": "BTC-USD",
   "1": "ETH-USD",
-  "2": "ALEO-USD",
 };
 
 const POSITION_RECORD_PROGRAM_CANDIDATES = [
   PROGRAMS.CORE,
   PRIVATE_CORE_PROGRAM,
+  PUBLIC_CORE_PROGRAM,
+  "autoperp_core_v7.aleo",
+  "autoperp_core_private_v7.aleo",
   "autoperp_core_v5.aleo",
 ];
 

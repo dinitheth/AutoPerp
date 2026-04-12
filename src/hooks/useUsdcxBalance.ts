@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useWallet } from "@provablehq/aleo-wallet-adaptor-react";
-import { PROGRAMS } from "@/lib/protocol";
+import { PROGRAMS, PUBLIC_CORE_PROGRAM } from "@/lib/protocol";
 
 const CREDITS_PROGRAM = "credits.aleo";
 const USDCX_PROGRAM = "test_usdcx_stablecoin.aleo";
-const VAULT_PROGRAM = PROGRAMS.CORE;
+const VAULT_PROGRAM = PUBLIC_CORE_PROGRAM; // vault mapping only exists on public core
 const API_BASE = "https://api.explorer.provable.com/v1/testnet";
 
 function parseUnsignedInt(raw: string): number {

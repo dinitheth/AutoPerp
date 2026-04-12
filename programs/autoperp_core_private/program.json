@@ -1,12 +1,17 @@
 {
-  "program": "autoperp_core_private_v2.aleo",
-  "version": "2.0.0",
-  "description": "AutoPerp Core Private V2 - private record-based trading state with USDCx-backed collateral settlement",
+  "program": "autoperp_core_private_v9.aleo",
+  "version": "9.0.0",
+  "description": "AutoPerp Core Private V9 - Privacy-preserving settlement with oracle validation, funding-adjusted payouts, shielded token transfers, NAV-based LP shares",
   "license": "MIT",
-  "leo": "3.4.0",
+  "leo": "4.0.0",
   "dependencies": [
     {
       "name": "test_usdcx_stablecoin.aleo",
+      "location": "network",
+      "network": "testnet"
+    },
+    {
+      "name": "autoperp_oracle_v2.aleo",
       "location": "network",
       "network": "testnet"
     }

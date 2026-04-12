@@ -138,13 +138,11 @@ interface PositionRecord {
 const MARKET_NAMES: Record<string, string> = {
   "0": "BTC-USD",
   "1": "ETH-USD",
-  "2": "ALEO-USD",
 };
 
 const MARKET_IDS: Record<string, string> = {
   "BTC-USD": "0u8",
   "ETH-USD": "1u8",
-  "ALEO-USD": "2u8",
 };
 
 function parseMappingBalance(raw: string): number {
@@ -158,6 +156,17 @@ function parseMappingBalance(raw: string): number {
     .trim();
   const n = Number.parseInt(cleaned, 10);
   return Number.isFinite(n) ? n : 0;
+}
+
+/** Check if a position was opened by the AI Agent (stored in localStorage) */
+function isAgentPosition(positionId: number, walletAddress: string): boolean {
+  try {
+    const key = `autoperp:agent-positions:${walletAddress.toLowerCase()}`;
+    const ids = JSON.parse(localStorage.getItem(key) ?? "[]") as string[];
+    return ids.includes(String(positionId));
+  } catch {
+    return false;
+  }
 }
 
 async function fetchPublicVaultUsdcx(program: string, owner: string): Promise<number> {
@@ -217,12 +226,15 @@ const PositionsList = ({ coreProgram, isPrivateMode }: PositionsListProps) => {
   const { prices, getPrice } = usePrices();
   const closeFailureCountRef = useRef<Record<string, number>>({});
   const closedPositionIdsRef = useRef<Set<string>>(loadClosedPositionIds(address));
+  // Always scan BOTH public and private core programs for positions.
+  // The Agent always uses the public core, so agent-opened positions
+  // must be visible even when the user is in private mode.
   const positionRecordProgramCandidates = useMemo(
-    () =>
-      isPrivateMode
-        ? [coreProgram, PRIVATE_CORE_PROGRAM]
-        : [coreProgram, PUBLIC_CORE_PROGRAM],
-    [coreProgram, isPrivateMode],
+    () => {
+      const candidates = new Set([coreProgram, PUBLIC_CORE_PROGRAM, PRIVATE_CORE_PROGRAM]);
+      return Array.from(candidates);
+    },
+    [coreProgram],
   );
 
   // Stable ref so fetchPositions doesn't re-create on every price tick
@@ -261,7 +273,7 @@ const PositionsList = ({ coreProgram, isPrivateMode }: PositionsListProps) => {
             markPrice: p.entryPrice,
             pnl: 0,
             pnlPercent: 0,
-            agentActive: p.stopLoss > 0 || p.takeProfit > 0,
+            agentActive: isAgentPosition(p.positionId, address ?? ""),
             stopLoss: p.stopLoss,
             takeProfit: p.takeProfit,
             rawData: p.rawData,
@@ -550,37 +562,25 @@ const PositionsList = ({ coreProgram, isPrivateMode }: PositionsListProps) => {
         return null;
       }
 
+      // Fetch funding rate and direction from oracle for the contract
+      let fundingRateU64 = "0u64";
+      let fundDirectionU8 = "0u8";
+      try {
+        const { fetchFundingRateRaw } = await import("@/hooks/useAleoTransaction");
+        const mid = pos.market === "BTC-USD" ? 0 : pos.market === "ETH-USD" ? 1 : 2;
+        const { rateU64, directionU8 } = await fetchFundingRateRaw(mid);
+        fundingRateU64 = rateU64;
+        fundDirectionU8 = directionU8;
+      } catch {
+        // Fallback to zero — will match oracle if oracle also has no funding set
+      }
+
       if (isPrivateMode) {
-        const poolId = MARKET_IDS[pos.market];
-        if (!poolId) return null;
-
-        let latest: unknown[] = [];
-        try {
-          latest = await requestProgramRecords(
-            requestRecords,
-            coreProgram,
-            true,
-            disconnect,
-            connect,
-          );
-        } catch {
-          latest = [];
-        }
-
-        const owner = (address ?? "").trim();
-        const vault = findVaultRecord(latest, owner);
-        const pool = findPoolStateRecord(latest, owner, poolId);
-
-        if (!vault || !pool) {
-          toast.error("Could not load private vault/pool records required to close this position.");
-          return null;
-        }
-
         return execute(coreProgram, "close_position", [
           recordInput,
-          vault.input,
-          pool.input,
           toPrice(price),
+          fundingRateU64,
+          fundDirectionU8,
         ], fee);
       }
 
@@ -594,6 +594,8 @@ const PositionsList = ({ coreProgram, isPrivateMode }: PositionsListProps) => {
       return execute(coreProgram, "close_position", [
         recordInput,
         toPrice(price),
+        fundingRateU64,
+        fundDirectionU8,
       ], fee);
     };
 
@@ -853,8 +855,8 @@ const PositionsList = ({ coreProgram, isPrivateMode }: PositionsListProps) => {
                     <th className="text-left px-4 py-2.5 font-medium">Leverage</th>
                     <th className="text-left px-4 py-2.5 font-medium">Entry</th>
                     <th className="text-left px-4 py-2.5 font-medium">Mark</th>
-                    <th className="text-left px-4 py-2.5 font-medium">PnL</th>
-                    {!isPrivateMode && <th className="text-left px-4 py-2.5 font-medium">Agent</th>}
+                    <th className="text-left px-4 py-2.5 font-medium">Est. PnL (± Funding)</th>
+
                     <th className="text-right px-4 py-2.5 font-medium">Actions</th>
                   </tr>
                 </thead>
@@ -873,6 +875,12 @@ const PositionsList = ({ coreProgram, isPrivateMode }: PositionsListProps) => {
                           >
                             {pos.direction}
                           </span>
+                          {pos.agentActive && (
+                            <span className="inline-flex items-center gap-0.5 rounded-full bg-primary/15 px-1.5 py-0.5 text-[9px] font-semibold text-primary border border-primary/30">
+                              <Bot className="h-2.5 w-2.5" />
+                              Agent
+                            </span>
+                          )}
                         </div>
                       </td>
                       <td className="px-4 py-3 text-xs font-mono text-foreground">
@@ -895,18 +903,7 @@ const PositionsList = ({ coreProgram, isPrivateMode }: PositionsListProps) => {
                           {pos.pnl >= 0 ? "+" : ""}${pos.pnl.toFixed(2)} ({pos.pnlPercent.toFixed(2)}%)
                         </span>
                       </td>
-                      {!isPrivateMode && (
-                        <td className="px-4 py-3">
-                          {pos.agentActive ? (
-                            <span className="inline-flex items-center gap-1 text-[10px] text-primary">
-                              <Bot className="h-3 w-3" />
-                              Yes
-                            </span>
-                          ) : (
-                            <span className="text-[10px] text-muted-foreground">No</span>
-                          )}
-                        </td>
-                      )}
+
                       <td className="px-4 py-3 text-right">
                         <button
                           onClick={() => handleClose(pos)}
@@ -939,6 +936,12 @@ const PositionsList = ({ coreProgram, isPrivateMode }: PositionsListProps) => {
                         >
                           {pos.direction} {pos.leverage}x
                         </span>
+                        {pos.agentActive && (
+                          <span className="inline-flex items-center gap-0.5 rounded-full bg-primary/15 px-1.5 py-0.5 text-[9px] font-semibold text-primary border border-primary/30">
+                            <Bot className="h-2.5 w-2.5" />
+                            Agent
+                          </span>
+                        )}
                       </div>
                       <span
                         className={cn(
@@ -972,18 +975,9 @@ const PositionsList = ({ coreProgram, isPrivateMode }: PositionsListProps) => {
                     </div>
 
                     <div className="flex items-center justify-between">
-                      {!isPrivateMode ? (
-                        pos.agentActive ? (
-                          <span className="inline-flex items-center gap-1 text-[10px] text-primary">
-                            <Bot className="h-3 w-3" />
-                            Yes (SL ${pos.stopLoss?.toLocaleString() || 'None'} / TP ${pos.takeProfit?.toLocaleString() || 'None'})
-                          </span>
-                        ) : (
-                          <span className="text-[10px] text-muted-foreground">No</span>
-                        )
-                      ) : (
-                        <span className="text-[10px] text-muted-foreground opacity-0 pointer-events-none hidden">Private mode (No Agent)</span>
-                      )}
+                      <span className="text-[10px] text-muted-foreground">
+                        SL: ${pos.stopLoss ? pos.stopLoss.toLocaleString() : '—'} / TP: ${pos.takeProfit ? pos.takeProfit.toLocaleString() : '—'}
+                      </span>
                       <button
                         onClick={() => handleClose(pos)}
                         disabled={closingId === pos.id || txLoading}

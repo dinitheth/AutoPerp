@@ -1,9 +1,9 @@
 {
-  "program": "autoperp_oracle.aleo",
-  "version": "0.1.0",
-  "description": "AutoPerp Oracle - Price feeds and mark price calculation",
+  "program": "autoperp_oracle_v2.aleo",
+  "version": "2.0.0",
+  "description": "AutoPerp Oracle V2 - Price feeds, TWAP mark pricing, funding rate computation. External storage access source for core programs.",
   "license": "MIT",
-  "leo": "3.4.0",
+  "leo": "4.0.0",
   "dependencies": null,
   "dev_dependencies": null
 }

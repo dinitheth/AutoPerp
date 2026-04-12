@@ -54,7 +54,7 @@ function buildSystemPrompt(ctx: AgentContext): string {
 ${priceList}
 
 ## SUPPORTED MARKETS
-Only these pairs are tradable: BTC-USD, ETH-USD, ALEO-USD
+Only these pairs are tradable: BTC-USD, ETH-USD
 
 ## USER WALLET STATUS
 Connected: ${ctx.walletConnected ? "Yes" : "No"}
@@ -70,13 +70,17 @@ Aleo Credits: ${ctx.creditsBalance ?? "Not available"}
 - AgentAuth permission primitives are deployed; full autonomous execution is in progress
 - Minimum collateral: 1 USDCx
 - Testnet only
-- Trades are executed on-chain via the selected core program (Public: autoperp_core_v5.aleo, Private: autoperp_core_private_v2.aleo)
+- Trades are executed on-chain via the selected core program (Public: autoperp_core_v9.aleo, Private: autoperp_core_private_v9.aleo)
+- Oracle prices are read on-chain via cross-program external storage access from autoperp_oracle_v2.aleo
+- AgentAuth permissions are granted on-chain via autoperp_agent_v3.aleo (grant_auth, execute_agent_action, revoke_auth)
+- Funding rates are computed by the oracle and applied automatically during position close
+- Private mode uses transfer_public_to_private for shielded withdrawals and payouts
 - Do not claim you can provide full account-level PnL or portfolio risk summaries from private records.
 
 ## CRITICAL VALIDATION RULES
 1. Wallet must be connected. If not, tell the user to connect Shield wallet first.
 2. The user's USDCx balance must cover the collateral amount. Current balance is ${ctx.usdcxBalance ?? "unknown"} USDCx. If collateral exceeds balance, reject the order immediately.
-3. Market must be one of BTC-USD, ETH-USD, ALEO-USD.
+3. Market must be one of BTC-USD, ETH-USD.
 4. For longs: SL < entry and TP > entry. For shorts: SL > entry and TP < entry.
 5. Liquidation check: LONG uses entry * (1 - 0.9 / leverage). SHORT uses entry * (1 + 0.9 / leverage).
 6. Warn about high liquidation risk for leverage >= 25x.
@@ -84,7 +88,10 @@ Aleo Credits: ${ctx.creditsBalance ?? "Not available"}
 8. If balance is 0.00 or unknown, tell the user you cannot verify available collateral.
 
 ## WHEN USER REQUEST IS MISSING INFO
-When the user wants to open a position but has not provided all details, respond briefly and include [TRADE_SETUP] at the end. If the user mentioned a specific market, also include [MARKET:BTC-USD], [MARKET:ETH-USD], or [MARKET:ALEO-USD].
+When the user wants to open a position but has not provided all details, respond briefly and include [TRADE_SETUP] at the end. If the user mentioned a specific market, also include [MARKET:BTC-USD] or [MARKET:ETH-USD].
+
+## AGENT EXECUTION
+When the user explicitly asks to "test the agent", "simulate agent execution", or "invoke agentauth", you MUST include [AGENT_EXECUTE] in your response. Explain that because Aleo records are encrypted in the Shield wallet, they must paste their AgentAuth record to simulate the background agent execution.
 
 ## ORDER CONFIRMATION FORMAT
 When all validations pass, present the order like this:
@@ -115,7 +122,7 @@ function extractTradeParams(
   response: string,
 ): AgentMessage["action"] extends { tradeParams?: infer T } ? T | undefined : undefined {
   try {
-    const marketMatch = response.match(/\*\*(BTC-USD|ETH-USD|ALEO-USD)\s+(LONG|SHORT|Long|Short)\*\*/i);
+    const marketMatch = response.match(/\*\*(BTC-USD|ETH-USD)\s+(LONG|SHORT|Long|Short)\*\*/i);
     if (!marketMatch) return undefined;
 
     const market = marketMatch[1];
@@ -157,7 +164,8 @@ function classifyUserIntent(input: string): {
   isOpenTradeIntent: boolean;
   isBalanceIntent: boolean;
   isSltpGuidanceIntent: boolean;
-  market?: "BTC-USD" | "ETH-USD" | "ALEO-USD";
+  isAgentExecuteIntent: boolean;
+  market?: "BTC-USD" | "ETH-USD";
 } {
   const text = input.toLowerCase();
   const hasOpenVerb = /(open|place|execute|submit|enter|buy|sell|\btrade\b|set\s*up|setup|go\s+long|go\s+short|\blong\b|\bshort\b)/.test(text);
@@ -167,19 +175,19 @@ function classifyUserIntent(input: string): {
     /(stop\s*[- ]?loss|take\s*[- ]?profit|sl\/?tp|\bsl\b|\btp\b)/.test(text) &&
     /(help|suggest|recommend|advice|set|what should)/.test(text) &&
     !hasOpenVerb;
+  const isAgentExecuteIntent = /(agent|simulate|invoke|test|auth|record)/.test(text) && /(execute|simulate|run|test)/.test(text);
   const btc = /(btc\s*[-/]?\s*usd|btc)/.test(text);
   const eth = /(eth\s*[-/]?\s*usd|eth)/.test(text);
-  const aleo = /(aleo\s*[-/]?\s*usd|aleo)/.test(text);
 
-  let market: "BTC-USD" | "ETH-USD" | "ALEO-USD" | undefined;
+  let market: "BTC-USD" | "ETH-USD" | undefined;
   if (btc) market = "BTC-USD";
   else if (eth) market = "ETH-USD";
-  else if (aleo) market = "ALEO-USD";
 
   return {
-    isOpenTradeIntent: hasOpenVerb && !isBalanceIntent && !isSltpGuidanceIntent && (hasTradeParam || Boolean(market)),
+    isOpenTradeIntent: hasOpenVerb && !isBalanceIntent && !isSltpGuidanceIntent && !isAgentExecuteIntent && (hasTradeParam || Boolean(market)),
     isBalanceIntent,
     isSltpGuidanceIntent,
+    isAgentExecuteIntent,
     market,
   };
 }
@@ -249,6 +257,12 @@ export function useAgent(ctx: AgentContext) {
           status: "pending",
           tradeParams: tradeParams ?? undefined,
         };
+      } else if (response.includes("[AGENT_EXECUTE]")) {
+        action = {
+          type: "EXECUTE_AGENT_ACTION",
+          details: "Simulate an automated AI background trade via the autoperp_agent program",
+          status: "pending",
+        };
       }
 
       let showTradeForm = false;
@@ -268,7 +282,7 @@ export function useAgent(ctx: AgentContext) {
         if (userIntent.isOpenTradeIntent) {
           showTradeForm = true;
           cleanContent = response.replace(/\[TRADE_SETUP\]/g, "").trim();
-          const marketTag = response.match(/\[MARKET:(BTC-USD|ETH-USD|ALEO-USD)\]/);
+          const marketTag = response.match(/\[MARKET:(BTC-USD|ETH-USD)\]/);
           if (marketTag) {
             preselectedMarket = marketTag[1];
             cleanContent = cleanContent.replace(/\[MARKET:[A-Z-]+\]/g, "").trim();
@@ -282,6 +296,10 @@ export function useAgent(ctx: AgentContext) {
             .replace(/\[MARKET:[A-Z-]+\]/g, "")
             .trim();
         }
+      }
+
+      if (response.includes("[AGENT_EXECUTE]")) {
+        cleanContent = cleanContent.replace(/\[AGENT_EXECUTE\]/g, "").trim();
       }
 
       const agentMsg: AgentMessage = {

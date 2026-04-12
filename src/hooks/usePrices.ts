@@ -8,7 +8,7 @@ export interface MarketPrice {
   positive: boolean;
 }
 
-const MARKET_SYMBOLS = ["BTC-USD", "ETH-USD", "ALEO-USD"] as const;
+const MARKET_SYMBOLS = ["BTC-USD", "ETH-USD"] as const;
 const BINANCE_SYMBOLS: Partial<Record<typeof MARKET_SYMBOLS[number], string>> = {
   "BTC-USD": "BTCUSDT",
   "ETH-USD": "ETHUSDT",
@@ -23,7 +23,6 @@ function defaultPrices(): MarketPrice[] {
   return [
     { symbol: "BTC-USD", price: 0, change24h: 0, positive: true },
     { symbol: "ETH-USD", price: 0, change24h: 0, positive: true },
-    { symbol: "ALEO-USD", price: 0, change24h: 0, positive: false },
   ];
 }
 
@@ -128,6 +127,7 @@ const usePrices = () => {
         } catch {
           // keep last known good prices on transient function errors
         }
+
       }
 
       const updated: MarketPrice[] = MARKET_SYMBOLS.map((symbol) => {

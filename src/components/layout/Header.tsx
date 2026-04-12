@@ -45,11 +45,15 @@ const Header = () => {
             <span className="text-primary-foreground text-xs font-bold tracking-tight">AP</span>
           </div>
           <span className="text-sm font-semibold tracking-tight text-foreground">AutoPerp</span>
+          <div className="hidden sm:flex items-center gap-1.5 ml-2 px-2 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/20">
+            <div className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
+            <span className="text-[10px] font-medium text-emerald-500 tracking-wide uppercase">Testnet Live</span>
+          </div>
         </Link>
 
         <nav className="hidden md:flex items-center gap-1">
           {navItems.map((item) => {
-            if (item.path === "/agent" && tradingMode === "private") return null;
+
             const isActive = location.pathname === item.path;
             return (
               <Link
@@ -111,7 +115,7 @@ const Header = () => {
           >
             <div className="container py-3 flex flex-col gap-1">
               {navItems.map((item) => {
-                if (item.path === "/agent" && tradingMode === "private") return null;
+
                 const isActive = location.pathname === item.path;
                 return (
                   <Link

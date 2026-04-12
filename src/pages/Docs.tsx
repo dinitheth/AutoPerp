@@ -6,141 +6,123 @@ const sections = [
   {
     id: "overview",
     title: "Overview",
-    content: `AutoPerp is a privacy-first perpetual DEX on Aleo. This version uses a unified settlement contract so trader collateral, LP liquidity, and fee payouts are all backed by the same real USDCx balance.`,
+    content: `AutoPerp is a privacy-first perpetual DEX on Aleo. All positions settle against real USDCx (test_usdcx_stablecoin.aleo). Oracle prices are validated on-chain via cross-program reads from autoperp_oracle_v2.aleo. Funding rates are computed by the oracle and applied by core programs during position close.`,
+  },
+  {
+    id: "oracle-integration",
+    title: "Oracle Integration (Cross-Program Reads)",
+    content: `Both core programs read prices and funding rates directly from autoperp_oracle_v2.aleo via cross-program external storage access inside their finalize (final {}) blocks.
+
+open_position (both public and private core):
+  - Reads: Mapping::get(autoperp_oracle_v2.aleo::prices, market_id)
+  - Validates user-supplied entry_price is within 1% divergence of the oracle price
+  - Assertion failure rejects the transaction if the price is stale or manipulated
+
+close_position (both public and private core):
+  - Reads: Mapping::get(autoperp_oracle_v2.aleo::prices, market_id) — validates close price
+  - Reads: Mapping::get_or_use(autoperp_oracle_v2.aleo::funding_rates, market_id, 0u64)
+  - Reads: Mapping::get_or_use(autoperp_oracle_v2.aleo::funding_direction, market_id, 0u8)
+  - Computes funding_amount = (size * funding_rate) / 1_000_000
+  - Adjusts pool_balance based on whether the position pays or receives funding
+
+Note: Aleo's architecture requires that mapping reads happen asynchronously in the final {} block. The user-supplied price is the execution-scope input, and the oracle assertion in finalize guarantees it cannot diverge beyond 1% from the on-chain oracle price. This is the only possible pattern for cross-program price validation in snarkVM.`,
+  },
+  {
+    id: "funding-rates",
+    title: "Funding Rate Application",
+    content: `Funding rates flow end-to-end:
+
+1. Oracle Computation: autoperp_oracle_v2.aleo stores computed funding rates in the funding_rates mapping and direction in funding_direction
+
+2. Core Program Application: During close_position, both autoperp_core_v9.aleo and autoperp_core_private_v9.aleo read funding_rates and funding_direction from the oracle via cross-program mapping access
+
+3. Settlement Math: funding_amount = (position_size * funding_rate) / 1_000_000. If position direction matches fund_direction, the position pays funding (pool gains). Otherwise, the position receives funding (pool pays)
+
+4. UI Transparency: The Trade page PriceBar displays live funding rates read from on-chain oracle mappings. The Positions table header shows "Est. PnL (± Funding)" to signal that funding is applied during settlement`,
+  },
+  {
+    id: "agent-auth",
+    title: "AgentAuth Integration",
+    content: `autoperp_agent_v3.aleo implements scoped, delegated execution with:
+
+- Bitmask Permissions: LIQUIDATE (1), CLOSE (2), ADJUST (4) — combinable via bitwise OR
+- Block-Height Expiry: Authorizations expire after a specified block height
+- Single-Use Enforcement: Each AgentAuth record is consumed on execution, preventing replay
+
+Frontend Integration (Agent Page):
+- grant_auth: Creates an AgentAuth record with scoped permissions, called via useAgentAuth hook
+- execute_agent_action: The AI chatbot recognizes "simulate agent" / "test agent" intents and renders an EXECUTE_AGENT_ACTION UI. Users paste their encrypted AgentAuth record, and the frontend calls autoperp_agent_v3.aleo::execute_agent_action on-chain
+- revoke_auth: Cancels an active authorization by consuming the record
+- On-chain execution produces an immutable ExecutionReceipt record
+
+The Agent page header shows active authorizations, execution receipts, and the agent's on-chain execution count from the agent_executions mapping.`,
   },
   {
     id: "privacy",
-    title: "Privacy Model",
-    content: `Positions remain private Leo records. The protocol exposes public state such as open interest, pool balances, share totals, and oracle prices. LP ownership records are private, while USDCx deposit/withdraw settlement transfers are publicly visible on explorer in the current path.`,
-  },
-  {
-    id: "settlement",
-    title: "Settlement",
-    content: `The active settlement path is autoperp_core_v5.aleo plus test_usdcx_stablecoin.aleo.
+    title: "Privacy Model & Private Token Transfers",
+    content: `Private Mode (autoperp_core_private_v9.aleo):
 
-- deposit_collateral pulls real USDCx from the signer into the program
-- open_position moves vault funds into the market pool balance
-- close_position settles trader PnL back to the vault (winning trades are paid from pool balance)
-- deposit_liquidity adds LP capital to the same market pool balance
-- claim_fees and withdraw_liquidity pay out from that same contract`,
+- Positions: Stored as encrypted PositionRecord records — invisible on explorer
+- Vault: TraderVault record holds private balance
+- LP Tokens: Private LPToken records for pool deposits
+
+Private Token Transfers (closing privacy gap):
+- Withdrawals use transfer_public_to_private: Creates a private USDCx Token record, so withdrawal amounts are NOT visible on explorer
+- Close Position payouts use transfer_public_to_private: PnL settlements are shielded
+- LP Withdrawals use transfer_public_to_private: LP redemptions are shielded
+- Fee Claims use transfer_public_to_private: Fee payouts are shielded
+- Deposits use transfer_public_as_signer: Required because test_usdcx's transfer_private_to_public requires Merkle freeze-list proofs that cannot be generated client-side
+
+Scalability Fix (Wave 4 Feedback):
+- The single-owner PoolState record has been completely removed
+- Pool state now uses shared public mappings: pool_balance, pool_deposits, pool_shares, pool_fees, open_interest, position_count
+- Multiple traders can interact concurrently without record contention`,
   },
   {
     id: "programs",
-    title: "Programs",
-    content: `autoperp_core_v5.aleo: trading, collateral, liquidity, fees, withdrawals
+    title: "Deployed Programs (Testnet)",
+    content: `autoperp_core_v9.aleo — Public settlement: trading, collateral, liquidity, fees. Cross-program oracle price validation and funding rate application in close_position.
 
-autoperp_core_private_v2.aleo: private record-based trading and LP state with USDCx-backed collateral settlement
+autoperp_core_private_v9.aleo — Private settlement: encrypted position records, private vault, shared pool mappings. Private token transfers via transfer_public_to_private for withdrawals and payouts.
 
-autoperp_agent_v2.aleo: scoped agent authorization and execution
+autoperp_agent_v3.aleo — Delegated agent execution: grant_auth (bitmask permissions, block-height expiry), execute_agent_action (single-use consumption), revoke_auth, liquidate_position.
 
-autoperp_oracle.aleo: market price and risk data
+autoperp_oracle_v2.aleo — On-chain oracle: TWAP prices, funding rates, funding direction. Read by both core programs via cross-program Mapping::get.
 
-autoperp_pool_v2.aleo: deprecated standalone helper retained for compatibility only`,
+test_usdcx_stablecoin.aleo — ARC-20 stablecoin with freeze-list compliance, used for all USDCx settlement.`,
   },
   {
     id: "markets",
     title: "Markets and Precision",
-    content: `Supported markets use fixed IDs: BTC-USD = 0, ETH-USD = 1, ALEO-USD = 2.
+    content: `Supported markets use fixed IDs: BTC-USD = 0, ETH-USD = 1.
 
 USDCx uses 6 decimals. Prices use 8 decimals. The protocol fee is 0.06% of notional.`,
   },
   {
-    id: "ui",
-    title: "Trade UI Notes",
-    content: `The Trade form now keeps risk controls directly in the order box:
+    id: "lp-yield",
+    title: "Liquidity Pools",
+    content: `AutoPerp has one pool per market (BTC-USD = 0, ETH-USD = 1).
 
-- Take Profit / Stop Loss inputs are always visible
-- The old AI Agent toggle is removed from the Trade tab
-- Available USDCx is shown beside Size (USDCx)
+LPs deposit USDCx and receive LP shares. Protocol fees from trader positions accrue to the pool.
 
-Agent-specific configuration remains on the dedicated Agent page.`,
+Fee formula: fee = (notional * 6) / 10000 (0.06%)
+Estimated Claimable = (your_shares * total_pool_fees) / total_pool_shares
+
+Public mode: LP accounting and fee claims are public USDCx transfers.
+Private mode: LP ownership is private records. Fee claims and withdrawals use transfer_public_to_private for shielded payouts.`,
   },
   {
     id: "troubleshooting",
     title: "Troubleshooting",
     content: `If positions look empty in Portfolio:
-
 - Refresh wallet records from Trade > Positions > Refresh
 - Ensure Shield wallet stays connected to the same account
-- Portfolio uses cached rows first and then refreshes from chain in the background
 
-If close position shows "Transaction Rejected" or "Unknown error":
-
+If close position shows "Transaction Rejected":
 - Retry once after mark price updates
 - Keep Shield wallet unlocked during proof generation
 - Ensure you are closing from the owner wallet that opened the position
-- The app refreshes a fresh private position record before close to avoid stale-record rejection
-- Common reject causes are stale/consumed position records, owner mismatch, or prover/network rejection under load
-- If needed, refresh positions and try closing again`,
-  },
-  {
-    id: "lp-yield",
-    title: "Liquidity Pools",
-    content: `How Liquidity Pools work
-
-AutoPerp has one pool per market:
-- BTC-USD = 0u8
-- ETH-USD = 1u8
-- ALEO-USD = 2u8
-
-LPs deposit USDCx into a selected pool and receive LP shares. Traders opening positions pay protocol fees that accrue to that pool. LP earnings come from those accumulated pool fees.
-
-Fee generation logic
-
-Notional:
-notional = collateral * leverage
-
-Protocol fee rate:
-0.06% of notional
-
-On-chain integer form:
-fee = (size * 6) / 10000
-
-Estimated Claimable Fees formula
-
-Estimated Claimable Fees = (your_shares * total_pool_fees) / total_pool_shares
-
-This value moves over time as:
-- new deposits increase total pool shares
-- new trades increase total pool fees
-- other LP claims decrease total pool fees
-
-Worked example (1000 USDCx depositor)
-
-If you deposit 1000 USDCx and:
-- total_pool_shares = 50,000
-- total_pool_fees = 300 USDCx
-
-Then estimate = (1000 * 300) / 50,000 = 6 USDCx.
-
-If total_pool_shares later grows to 100,000 while fees stay 300, estimate becomes 3 USDCx.
-
-Public claim behavior
-
-- Claim fees to wallet is Public mode only.
-- Public claim requires a public LP token record from autoperp_core_v5.aleo.
-- On success, claim pays USDCx to wallet and reduces pool_fees.
-
-Mode rules
-
-- Public mode: public LP accounting + public fee claim to wallet.
-- Private mode: private LP state path; public claim button is disabled for that mode.
-
-Pool policy note
-
-Pool UI displays: "Deposited liquidity is locked for 2 years".`,
-  },
-  {
-    id: "status",
-    title: "Implementation Status",
-    content: `Current feature maturity (testnet):
-
-- Position Privacy: Private record state with public settlement transfers
-- Liquidation Mechanism: Agent authorization contracts deployed; continuous automation runner in progress
-- Risk Management: SL/TP configuration live on position open; deeper AgentAuth execution paths in progress
-- Front-Running Protection: Reduced position-state exposure via private records; transfer-layer metadata remains public
-- LP Privacy: Private LP ownership records with publicly visible settlement amounts
-- Delegated Execution: On-chain permission primitives are live; production execution orchestration is in progress`,
+- Common reject causes are stale/consumed position records, owner mismatch, or oracle price divergence > 1%`,
   },
 ];
 

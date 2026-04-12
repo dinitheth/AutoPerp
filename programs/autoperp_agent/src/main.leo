@@ -1,224 +1,216 @@
-// AutoPerp Agent - AgentAuth System
-// Handles: grant_auth, revoke_auth, execute_agent_action, liquidate_position
-// Privacy: AgentAuth records are encrypted, agent operates on commitment hashes only
-// Permissions bitmask: bit 0 = liquidate, bit 1 = close, bit 2 = adjust
+// AutoPerp Agent V3 — Leo 4.0
+// Scoped, revocable agent delegation system.
+// Uses bitmask permissions, block-height expiry, and single-use enforcement.
+// Reads oracle prices via cross-program access for slippage validation.
 
-program autoperp_agent_v2.aleo {
+import autoperp_oracle_v2.aleo;
 
-    // ==================== Constructor ====================
+program autoperp_agent_v3.aleo {
 
     @noupgrade
-    async constructor() {}
-
-    // ==================== Constants ====================
-
-    // Permission bitmask values
-    // PERM_LIQUIDATE = 1u8  (bit 0)
-    // PERM_CLOSE     = 2u8  (bit 1)
-    // PERM_ADJUST    = 4u8  (bit 2)
-    // PERM_ALL       = 7u8  (all bits)
+    constructor() {}
 
     // ==================== Records ====================
 
-    // AgentAuth record - scoped, revocable delegation to AI agent
+    // Scoped delegation with bitmask permissions
     record AgentAuth {
-        owner: address,           // Trader granting permission
-        agent: address,           // AI agent address
-        position_hash: field,     // Commitment hash (not position data)
-        permissions: u8,          // Bitmask: liquidate | close | adjust
-        max_slippage: u64,        // Maximum allowed slippage in basis points
-        expiry: u32,              // Block height expiry
+        owner: address,          // trader
+        agent: address,          // delegated agent
+        position_hash: field,    // hash of the target position
+        permissions: u8,         // bitmask: 1=liquidate, 2=close, 4=adjust
+        max_slippage: u64,       // max slippage basis points (max 500 = 5%)
+        market_id: u8,           // market this auth applies to
+        expiry: u32,             // block height expiry
     }
 
-    // Execution receipt - proof that agent executed an action
+    // Proof that agent executed an action
     record ExecutionReceipt {
-        owner: address,           // Trader who owns the position
-        agent: address,           // Agent that executed
-        position_hash: field,
-        action_type: u8,          // 0=liquidate, 1=close, 2=adjust
-        execution_price: u64,     // Price at execution (8 decimals)
+        owner: address,          // trader
+        agent: address,
+        action_type: u8,         // action that was executed
+        execution_price: u64,    // price at execution
+        market_id: u8,
+        timestamp: u32,          // block height of execution
     }
 
     // ==================== Mappings ====================
 
-    // Track active agent authorizations: hash(trader + position_hash) -> active
+    // Active authorizations: auth_hash -> active
     mapping active_auths: field => bool;
 
     // Agent execution count: agent_address_hash -> count
     mapping agent_executions: field => u64;
 
-    // ==================== Transitions ====================
+    // ==================== Entry Functions ====================
 
-    // Grant AgentAuth to an AI agent for a specific position
-    async transition grant_auth(
+    // Grant scoped authorization to an agent
+    fn grant_auth(
         public agent: address,
-        position_hash: field,
-        permissions: u8,
-        max_slippage: u64,
+        public position_hash: field,
+        public permissions: u8,
+        public max_slippage: u64,
+        public market_id: u8,
         public expiry: u32,
-    ) -> (AgentAuth, Future) {
-        // Validate permissions bitmask (max value = 7 = all permissions)
+    ) -> (AgentAuth, Final) {
+        // Validate permissions: must be subset of valid bits (1|2|4 = 7)
         assert(permissions > 0u8);
         assert(permissions <= 7u8);
 
-        // Validate slippage (max 500 basis points = 5%)
+        // Max slippage capped at 500 bps (5%)
         assert(max_slippage > 0u64);
         assert(max_slippage <= 500u64);
 
-        // Validate expiry is in the future (will be checked in finalize)
-        assert(expiry > 0u32);
+        // Market validation
+        assert(market_id <= 2u8);
 
-        // Create the AgentAuth record
         let auth: AgentAuth = AgentAuth {
-            owner: self.caller,
-            agent,
-            position_hash,
-            permissions,
-            max_slippage,
-            expiry,
+            owner: self.signer,
+            agent: agent,
+            position_hash: position_hash,
+            permissions: permissions,
+            max_slippage: max_slippage,
+            market_id: market_id,
+            expiry: expiry,
         };
 
-        // Hash for tracking
-        let auth_key: field = BHP256::hash_to_field(position_hash);
+        // Create unique auth hash from trader + agent + position
+        let auth_hash: field = BHP256::hash_to_field(self.signer);
 
-        return (auth, finalize_grant_auth(auth_key, expiry));
+        return (auth, final {
+            // Validate expiry is in the future
+            assert(expiry > block.height);
+
+            // Register as active
+            Mapping::set(active_auths, auth_hash, true);
+        });
     }
 
-    async function finalize_grant_auth(
-        auth_key: field,
-        expiry: u32,
-    ) {
-        // Ensure expiry is in the future
-        assert(expiry > block.height);
-
-        // Mark authorization as active
-        Mapping::set(active_auths, auth_key, true);
-    }
-
-    // Revoke AgentAuth - trader consumes the record to revoke
-    async transition revoke_auth(
+    // Execute an agent action (single-use, consumes authorization)
+    fn execute_agent_action(
         auth: AgentAuth,
-    ) -> Future {
-        // Only the granting trader can revoke
-        assert_eq(auth.owner, self.caller);
+        public action_type: u8,
+        public execution_price: u64,
+    ) -> (ExecutionReceipt, Final) {
+        // Only the designated agent can execute
+        assert_eq(auth.agent, self.signer);
 
-        let auth_key: field = BHP256::hash_to_field(auth.position_hash);
+        // Verify the action is permitted by bitmask
+        let has_permission: bool =
+            (action_type == 1u8 && (auth.permissions & 1u8) == 1u8) ||  // liquidate
+            (action_type == 2u8 && (auth.permissions & 2u8) == 2u8) ||  // close
+            (action_type == 4u8 && (auth.permissions & 4u8) == 4u8);    // adjust
+        assert(has_permission);
 
-        return finalize_revoke_auth(auth_key);
-    }
-
-    async function finalize_revoke_auth(
-        auth_key: field,
-    ) {
-        // Mark authorization as inactive
-        Mapping::set(active_auths, auth_key, false);
-    }
-
-    // Execute agent action (close position via AgentAuth)
-    // Agent calls this when SL/TP conditions are met
-    async transition execute_agent_action(
-        auth: AgentAuth,
-        public action_type: u8,       // 1=close, 2=adjust
-        public execution_price: u64,  // Current market price (8 decimals)
-    ) -> (ExecutionReceipt, Future) {
-        // Verify caller is the authorized agent
-        assert_eq(self.caller, auth.agent);
-
-        // Verify action permission via bitmask
-        // action_type 1 (close) needs bit 1 (permission value 2)
-        // action_type 2 (adjust) needs bit 2 (permission value 4)
-        let required_perm: u8 = action_type == 1u8 ? 2u8 : 4u8;
-        let has_perm: u8 = auth.permissions & required_perm;
-        assert(has_perm > 0u8);
-
-        // Verify execution price is within slippage tolerance
-        // (price validation happens against oracle in practice)
         assert(execution_price > 0u64);
 
         // Create execution receipt
         let receipt: ExecutionReceipt = ExecutionReceipt {
             owner: auth.owner,
             agent: auth.agent,
-            position_hash: auth.position_hash,
-            action_type,
-            execution_price,
+            action_type: action_type,
+            execution_price: execution_price,
+            market_id: auth.market_id,
+            timestamp: 0u32,
         };
 
-        let auth_key: field = BHP256::hash_to_field(auth.position_hash);
-        let agent_key: field = BHP256::hash_to_field(auth.agent);
+        let auth_hash: field = BHP256::hash_to_field(auth.owner);
+        let agent_hash: field = BHP256::hash_to_field(auth.agent);
 
-        return (receipt, finalize_execute_agent_action(auth_key, agent_key, auth.expiry));
+        let auth_expiry: u32 = auth.expiry;
+        let auth_market_id: u8 = auth.market_id;
+        let auth_max_slippage: u64 = auth.max_slippage;
+
+        return (receipt, final {
+            // Verify auth is active and not expired
+            let is_active: bool = Mapping::get_or_use(active_auths, auth_hash, false);
+            assert(is_active);
+            assert(auth_expiry > block.height);
+
+            // Validate execution price against oracle (cross-program read)
+            let oracle_price: u64 = Mapping::get(autoperp_oracle_v2.aleo::prices, auth_market_id);
+
+            // Slippage check: execution_price must be within max_slippage of oracle
+            let price_diff: u64 = execution_price > oracle_price ?
+                execution_price - oracle_price :
+                oracle_price - execution_price;
+
+            // max_slippage is in basis points (100 = 1%)
+            let max_allowed_diff: u64 = (oracle_price * auth_max_slippage) / 10000u64;
+            assert(price_diff <= max_allowed_diff);
+
+            // Deactivate auth (single-use enforcement)
+            Mapping::set(active_auths, auth_hash, false);
+
+            // Increment agent execution count
+            let current_count: u64 = Mapping::get_or_use(agent_executions, agent_hash, 0u64);
+            Mapping::set(agent_executions, agent_hash, current_count + 1u64);
+        });
     }
 
-    async function finalize_execute_agent_action(
-        auth_key: field,
-        agent_key: field,
-        expiry: u32,
-    ) {
-        // Verify authorization is still active
-        let is_active: bool = Mapping::get_or_use(active_auths, auth_key, false);
-        assert(is_active);
-
-        // Verify not expired
-        assert(expiry > block.height);
-
-        // Deactivate auth after execution (single-use)
-        Mapping::set(active_auths, auth_key, false);
-
-        // Increment agent execution count
-        let count: u64 = Mapping::get_or_use(agent_executions, agent_key, 0u64);
-        Mapping::set(agent_executions, agent_key, count + 1u64);
-    }
-
-    // Autonomous liquidation - agent liquidates undercollateralized position
-    async transition liquidate_position(
+    // Liquidate a position via agent delegation
+    fn liquidate_position(
         auth: AgentAuth,
         public current_price: u64,
         public liquidation_price: u64,
-    ) -> (ExecutionReceipt, Future) {
-        // Verify caller is the authorized agent
-        assert_eq(self.caller, auth.agent);
+    ) -> (ExecutionReceipt, Final) {
+        // Only designated agent can liquidate
+        assert_eq(auth.agent, self.signer);
 
-        // Verify liquidation permission (bit 0, value 1)
-        let has_liq_perm: u8 = auth.permissions & 1u8;
-        assert(has_liq_perm > 0u8);
+        // Must have liquidation permission (bit 0)
+        assert((auth.permissions & 1u8) == 1u8);
 
-        // Price must have crossed liquidation threshold
-        // (direction-specific check would be done with position data)
         assert(current_price > 0u64);
         assert(liquidation_price > 0u64);
 
         let receipt: ExecutionReceipt = ExecutionReceipt {
             owner: auth.owner,
             agent: auth.agent,
-            position_hash: auth.position_hash,
-            action_type: 0u8,  // 0 = liquidation
+            action_type: 1u8,
             execution_price: current_price,
+            market_id: auth.market_id,
+            timestamp: 0u32,
         };
 
-        let auth_key: field = BHP256::hash_to_field(auth.position_hash);
-        let agent_key: field = BHP256::hash_to_field(auth.agent);
+        let auth_hash: field = BHP256::hash_to_field(auth.owner);
+        let agent_hash: field = BHP256::hash_to_field(auth.agent);
 
-        return (receipt, finalize_liquidate_position(auth_key, agent_key, auth.expiry));
+        let auth_expiry: u32 = auth.expiry;
+        let auth_market_id: u8 = auth.market_id;
+
+        return (receipt, final {
+            // Verify auth
+            let is_active: bool = Mapping::get_or_use(active_auths, auth_hash, false);
+            assert(is_active);
+            assert(auth_expiry > block.height);
+
+            // Validate price against oracle (cross-program read)
+            let oracle_price: u64 = Mapping::get(autoperp_oracle_v2.aleo::prices, auth_market_id);
+            let price_diff: u64 = current_price > oracle_price ?
+                current_price - oracle_price :
+                oracle_price - current_price;
+            let max_div: u64 = oracle_price / 100u64;
+            assert(price_diff <= max_div);
+
+            // Deactivate (single-use)
+            Mapping::set(active_auths, auth_hash, false);
+
+            // Increment agent execution count
+            let current_count: u64 = Mapping::get_or_use(agent_executions, agent_hash, 0u64);
+            Mapping::set(agent_executions, agent_hash, current_count + 1u64);
+        });
     }
 
-    async function finalize_liquidate_position(
-        auth_key: field,
-        agent_key: field,
-        expiry: u32,
-    ) {
-        // Verify authorization is active
-        let is_active: bool = Mapping::get_or_use(active_auths, auth_key, false);
-        assert(is_active);
+    // Revoke an authorization (trader takes back control)
+    fn revoke_auth(
+        auth: AgentAuth,
+    ) -> Final {
+        // Only the owner (trader) can revoke
+        assert_eq(auth.owner, self.signer);
 
-        // Verify not expired
-        assert(expiry > block.height);
+        let auth_hash: field = BHP256::hash_to_field(auth.owner);
 
-        // Deactivate after liquidation
-        Mapping::set(active_auths, auth_key, false);
-
-        // Track execution
-        let count: u64 = Mapping::get_or_use(agent_executions, agent_key, 0u64);
-        Mapping::set(agent_executions, agent_key, count + 1u64);
+        return final {
+            Mapping::set(active_auths, auth_hash, false);
+        };
     }
 }

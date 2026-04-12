@@ -1,12 +1,17 @@
 {
-  "program": "autoperp_core_v5.aleo",
-  "version": "5.0.0",
-  "description": "AutoPerp Core V5 - private-first USDCx-backed settlement for trading and LP liquidity",
+  "program": "autoperp_core_v9.aleo",
+  "version": "9.0.0",
+  "description": "AutoPerp Core V9 - Public settlement with cross-program oracle validation, funding-adjusted payouts, NAV-based LP shares, verified position IDs, USDCx settlement",
   "license": "MIT",
-  "leo": "3.4.0",
+  "leo": "4.0.0",
   "dependencies": [
     {
       "name": "test_usdcx_stablecoin.aleo",
+      "location": "network",
+      "network": "testnet"
+    },
+    {
+      "name": "autoperp_oracle_v2.aleo",
       "location": "network",
       "network": "testnet"
     }

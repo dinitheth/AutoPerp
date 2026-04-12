@@ -31,7 +31,6 @@ type LpCandidate = {
 const pools = [
   { name: "BTC-USD Pool", poolId: "0u8", marketKey: "BTC-USD" },
   { name: "ETH-USD Pool", poolId: "1u8", marketKey: "ETH-USD" },
-  { name: "ALEO-USD Pool", poolId: "2u8", marketKey: "ALEO-USD" },
 ];
 
 interface UserLpInfo {
@@ -384,38 +383,23 @@ const Pool = () => {
     const pool = pools[selectedPool];
     let result = null;
 
+    // Compute NAV-based LP shares for the contract
+    let computedShares: string;
+    try {
+      const { fetchPoolState, computeNavShares } = await import("@/hooks/useAleoTransaction");
+      const mid = parseInt(pool.poolId.replace("u8", ""));
+      const { balance, shares } = await fetchPoolState(coreProgram, mid);
+      const amountMicro = Math.floor(depositAmount * 1_000_000);
+      computedShares = computeNavShares(amountMicro, balance, shares);
+    } catch {
+      // Fallback to 1:1 if pool state unavailable (empty pool)
+      computedShares = toUsdcx(depositAmount);
+    }
+
     if (isPrivateMode) {
-      const owner = address ?? "";
-
-      const loadPool = async () => {
-        const records = await requestProgramRecords(
-          requestRecords,
-          coreProgram,
-          true,
-          disconnect,
-          connect,
-        );
-        return findPoolStateRecord(records, owner, pool.poolId);
-      };
-
-      let poolRecord = await loadPool();
-      if (!poolRecord) {
-        const bootstrapped = await execute(coreProgram, "bootstrap_pool", [pool.poolId, "0u64"]);
-        if (!bootstrapped) {
-          toast.error("Could not initialize private pool state record.");
-          return;
-        }
-        poolRecord = await loadPool();
-      }
-
-      if (!poolRecord) {
-        toast.error("Could not load private pool state record.");
-        return;
-      }
-
-      result = await execute(coreProgram, "deposit_liquidity", [poolRecord.input, toUsdcx(depositAmount)]);
+      result = await execute(coreProgram, "deposit_liquidity", [pool.poolId, toUsdcx(depositAmount), computedShares]);
     } else {
-      result = await execute(coreProgram, "deposit_liquidity", [pool.poolId, toUsdcx(depositAmount)]);
+      result = await execute(coreProgram, "deposit_liquidity", [pool.poolId, toUsdcx(depositAmount), computedShares]);
     }
 
     if (result) {

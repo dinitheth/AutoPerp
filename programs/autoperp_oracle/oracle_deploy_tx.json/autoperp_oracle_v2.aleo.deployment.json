@@ -1,0 +1,113 @@
+{
+  "type": "deploy",
+  "id": "at1t5cfgqyymuytzau0zshejhuemk2vfa5egm6qjelw9s3nm3yhhsps4z6v74",
+  "owner": {
+    "address": "aleo1f4d2swa2uph5svch9puss8yhmmjd8xjuc7445kczttsjcr4eeyxs7g735h",
+    "signature": "sign16xw5q4087gard0ysnjpdsta4pctrvnz5c5sa6ggpe4wy4v792cqjdtkd9y22scqgllrlkwc67ye38ycr0rv4tpclfy8ddpz8efuw6qkeaqmwewvv54xs4lh9kvne4ryswk4fwzpdd3gx7q5ukgjv56yyzfgzc5vcuk860zthxd5fsu2wq63838tgwdrtykr4vnaqassva7j3qsu0f30"
+  },
+  "deployment": {
+    "edition": 0,
+    "program": "program autoperp_oracle_v2.aleo;\n\nmapping prices:\n    key as u8.public;\n    value as u64.public;\n\nmapping price_timestamps:\n    key as u8.public;\n    value as u32.public;\n\nmapping price_confidence:\n    key as u8.public;\n    value as u64.public;\n\nmapping mark_prices:\n    key as u8.public;\n    value as u64.public;\n\nmapping funding_rates:\n    key as u8.public;\n    value as u64.public;\n\nmapping funding_direction:\n    key as u8.public;\n    value as u8.public;\n\nmapping oracle_admin:\n    key as u8.public;\n    value as field.public;\n\nmapping mark_timestamps:\n    key as u8.public;\n    value as u32.public;\n\nfunction initialize:\n    input r0 as address.public;\n    async initialize r0 into r1;\n    output r1 as autoperp_oracle_v2.aleo/initialize.future;\n\nfinalize initialize:\n    input r0 as address.public;\n    contains oracle_admin[0u8] into r1;\n    not r1 into r2;\n    assert.eq r2 true;\n    hash.bhp256 r0 into r3 as field;\n    set r3 into oracle_admin[0u8];\n\nfunction update_price:\n    input r0 as u8.public;\n    input r1 as u64.public;\n    input r2 as u64.public;\n    lte r0 2u8 into r3;\n    assert.eq r3 true;\n    gt r1 0u64 into r4;\n    assert.eq r4 true;\n    gt r2 0u64 into r5;\n    assert.eq r5 true;\n    async update_price self.caller r0 r1 r2 into r6;\n    output r6 as autoperp_oracle_v2.aleo/update_price.future;\n\nfinalize update_price:\n    input r0 as address.public;\n    input r1 as u8.public;\n    input r2 as u64.public;\n    input r3 as u64.public;\n    get oracle_admin[0u8] into r4;\n    hash.bhp256 r0 into r5 as field;\n    assert.eq r4 r5;\n    set r2 into prices[r1];\n    set block.height into price_timestamps[r1];\n    set r3 into price_confidence[r1];\n\nfunction update_mark_price:\n    input r0 as u8.public;\n    lte r0 2u8 into r1;\n    assert.eq r1 true;\n    async update_mark_price r0 into r2;\n    output r2 as autoperp_oracle_v2.aleo/update_mark_price.future;\n\nfinalize update_mark_price:\n    input r0 as u8.public;\n    get prices[r0] into r1;\n    get.or_use mark_prices[r0] r1 into r2;\n    mul r1 7u64 into r3;\n    mul r2 3u64 into r4;\n    add r3 r4 into r5;\n    div r5 10u64 into r6;\n    set r6 into mark_prices[r0];\n    set block.height into mark_timestamps[r0];\n\nfunction update_funding_rate:\n    input r0 as u8.public;\n    lte r0 2u8 into r1;\n    assert.eq r1 true;\n    async update_funding_rate r0 into r2;\n    output r2 as autoperp_oracle_v2.aleo/update_funding_rate.future;\n\nfinalize update_funding_rate:\n    input r0 as u8.public;\n    get prices[r0] into r1;\n    get.or_use mark_prices[r0] r1 into r2;\n    gt r2 r1 into r3;\n    sub r2 r1 into r4;\n    mul r4 1000000u64 into r5;\n    div r5 r1 into r6;\n    sub r1 r2 into r7;\n    mul r7 1000000u64 into r8;\n    div r8 r1 into r9;\n    ternary r3 r6 r9 into r10;\n    ternary r3 0u8 1u8 into r11;\n    set r10 into funding_rates[r0];\n    set r11 into funding_direction[r0];\n\nconstructor:\n    assert.eq edition 0u16;\n",
+    "verifying_keys": [
+      [
+        "initialize",
+        [
+          "verifier1qygqqqqqqqqqqqqs9sqqqqqqqqqqxtqqqqqqqqqqh4sqqqqqqqqqpv5qqqqqqqqqqz3rcqqqqqqqqqqvqqqqqqqqqqqqe6vf62x4yeugpp973mcxyc3fq3hxt5j97nfet2zt8jzll4f6xn5wpralhssv7052wmtjwdurhqcq6l04e8r9g6dra7lszhhh9a457ww9vj306t7e87ja4c2xpq0q4s8wy8lue69n6h2xywxf4ur6nj5qpzlauayavd3zxhhy740j03fgpasak34w30j2ar8us57qh4v7lmwye2eyhzrt9esmwmhw0cypwkpwqry46argx5vcjxuea0ejp0pech3yckyyfasyp9v4xdgsd7tnm5ggahha27g82j5nmf5cd0xfryrq7qf0da3en03rj6exd9pyxey2he3vq3k3xecy3lxdxg77p49qudfjaacpmvfdmv2l3k3fv0gg3ks2swqcwke3rad678zq3zvpffc53sjhaa6rzytgkvsq9n6s057x397yyh3azuelymqtxwruyv30qx859psp3gxy98utg9av9pwpss85tt5h7zkpt09nfr9jwnnguxmwf50an6g05kjmdgqyrh9vclpk93xdle4qrq5ze0yzd7ruzjwk3ajuq8sepkt6y9kfpl86lwnp6d2gzmt4sc2jhp32l28glndt43t2cdnmht5gq92wzug9w44f7ky894c6y8hymsuarfe3qa7dhwhsd3etyylum63rx4le77key3z7m7uws43n2cmqnqgx5795yhq3z0344dz0tdsvvxnskeh763k8cxtfpzshk3axc7zadvxdf4tm57zj4zvnztanw5ark5qvrxlrzldq2e5fk023dv4xnjnum7cc5etd752qrvw4awm802srdx3q472rrn0t6j2ea9n3v6ehgcsquuhsjjaug7amdt69cxzfcugu4nze3pr70nlxa796khv65lmqh8sgfmj4043567uyzj98r2aeszccq4hmn06wxx9vl4ck2tka282tsvt87jw3eqe07zxqu9lxwstksuqjyylsqqqqqqqqqpu39y9",
+          "certificate1qyqsqqqqqqqqqqqaqhnqeppwx8qryjnv4e8t9zl2695zs63rw7v8fjknhwe4fsacjpsk6z748y0n6c9kv3rafgm6mjqqq55w0yz"
+        ]
+      ],
+      [
+        "update_price",
+        [
+          "verifier1qygqqqqqqqqqqqxmxqqqqqqqqqqd2vqqqqqqqqqq2eesqqqqqqqqpz5aqqqqqqqqqrjyqqqqqqqqqqqvqqqqqqqqqqqy8enmcm2frm03fz8nrxwv305a7w09mkqez8wx8hj3y7zuqzrumjpyhcvrqd09767sh6t8qggfe5gq9ehydksz5c6w0v5yguxr89d5vs03j9fk2967vdf45y7nqxspxqyrkrh2tm6hmtcuv6sv544puz0crgjw29g6z9dud4zscuqmj204z5g0jsmy6nxzxs54l67alq3ntngl93233xx6l04d2e7wqnlxjc50qx3y867h782s9hs9z3jmanrt6puwj9h8l6carg4zap0zdz6ervzeg6xpu6d94s0470yy2pavm2mc3qvxcmpdmz486rqmq4zuvy3mcruzawjl9j9fcelngwgsqa3vkjr9hmgysnapgnhrvc05j9akumgazxqm0hrqgzuluwen40j2s07l3mjq6cza7k0cu5dtemw5gd0v7gh8eed4277p9rulnhfq9rayl3m2v3cp4hlk3g5vxx5qrhg0lf9zcmhwpq6w4x76jsg79xqzpjms63hp7vp5x8fn4uak4hvkk76d7hq65c6cz3cuuud7t225z3s5k6ss6lnecg4yljp23dusdx7g4xn7zdzcfc9gr8pm2fcg6yapqhg3gy7cg3x7qqxla5k2sn0sjqexcl3aneucqdqzxq4zu30hac534y7khe83075uh5qamppdzyrsf8eclthkcs3pfqdgla0rygna2mmfzlemvm56u96zjv6xgjcz2zx0vynj0t20trfc98e92f0km95nt0clxen6pwdfyvqe5yf8a4a0zj8rllv3n35lf4gvmpdwj036tvq0e70d9gxcfqd4c8u9c7np6lhf72gc7j6hjvv42eqptsstm072q0g5wunssvfjem38fapwuptkq5vggt4vyhwjkag0ek3gd9cuvy2hrk7w9nevy6mkncygqk4cvs5f672t5h84l4ah3shncc0rvnhrtvw3273g4mqmgkqezgp864zsqqqqqqqqqyptj72",
+          "certificate1qyqsqqqqqqqqqqrgk390qhlntxyj880sp2yq2ykd4lpqvk93c77gncxnk0rtq5t4g4hgnr3wksh3xs2pkp5jjl6zxwqsq4eru8l"
+        ]
+      ],
+      [
+        "update_mark_price",
+        [
+          "verifier1qygqqqqqqqqqqqqs9gqqqqqqqqqqg2sqqqqqqqqq8pdsqqqqqqqqqrm6qqqqqqqqqrenjqqqqqqqqqqvqqqqqqqqqqqxvzhkrrgyq4l56vdxf928hq8gyfe2zf2srvxugfx70yfp52ldxz9jcn5uy2dq5uyzctgvff58ya5pu0ule80usywfg60f922uldkp8uphmal0nld8gn2nlykdhzqr4z2ztyy2emaqpr74gr5m9wm5ux8cpkxplpay9ksc06d60239vvy8w276hzutgnxufvc45j8pkwalnj8empmzwanmywyt77e4rqqsp6frsyd8kckmhmtl5v3hpwva0aarww3cdq9yjnkrkx88s22faq66cz05hut4h5qrc2fzjcu8cshzlng9pqyj70cgfknf89072n257445mfq9vhz8hhxh4lch3gwfgd04ghgv72q3pywgmw7jdg5p9gdc8ajfwqqgsmm226xyvc44du57nyn328e0jzljwuczyevxqjqe2h5xlz626rzd6wxq9x8ypwawu452mcddshyqkdmfrzezzaegfmca9xpqyl45f7qtayd35zk5xr0fh6dycmm996uzfc8hwpr60jtyt6jjy6z77kjcqulfjxfr83n0wc9dlpkr6wnkgrssxynha6752486jh9hmmx96zpygfwm0z0984xc65svhq2j40mcqzyyhp8e0zs559jafkf7m5yxfutw2zl624a9t0wjhw66wst7f0fnn4ksc33zzckn9kd9p7rggd9x0qzdq6vzka4j6l6ggkp5lysuk3qzpx5qz5psll42e6l28tmdk43hjq4l7a0dmqe6jh0rf6peh5rmkuqprpcga36stkygeknncgzufvafmxwzjgfuka3c9xggqsfmtaeu7nfe68l4zsc4tdfyamd7d9rtxcqq3ghp5nrhdrx7dp4hf4efmmudmzyusnepy4d0zvnx7r3vu935daluf09dxerj6s8hr58hd46x5gnqz9269y5d4va68l3uvswdqxmkn0hmdw67rzj5wuuvv4fd9rwgk2dxsglqqqqqqqqqqkxefad",
+          "certificate1qyqsqqqqqqqqqqpd08s03vu7n47zdalglt9x966yqeg4m6ecfeulvlttd9y23vrwqhq36yf8xq49unzhsdjqqrsul7qqqvkmxyf"
+        ]
+      ],
+      [
+        "update_funding_rate",
+        [
+          "verifier1qygqqqqqqqqqqqqs9gqqqqqqqqqqg2sqqqqqqqqq8pdsqqqqqqqqqrm6qqqqqqqqqrenjqqqqqqqqqqvqqqqqqqqqqqxvzhkrrgyq4l56vdxf928hq8gyfe2zf2srvxugfx70yfp52ldxz9jcn5uy2dq5uyzctgvff58ya5pu0ule80usywfg60f922uldkp8uphmal0nld8gn2nlykdhzqr4z2ztyy2emaqpr74gr5m9wm5ux8cpkxplpay9ksc06d60239vvy8w276hzutgnxufvc45j8pkwalnj8empmzwanmywyt77e4rqqsp6frsyd8kckmhmtl5v3hpwva0aarww3cdq9yjnkrkx88s22faq66cz05hut4h5qrc2fzjcu8cshzlng9pqyj70cgfknf89072n257445mfq9vhz8hhxh4lch3gwfgd04ghgv72q3pywgmw7jdg5p9gdc8ajfwqqgsmm226xyvc44du57nyn328e0jzljwuczyevxqjqe2h5xlz626rzd6wxq9x8ypwawu452mcddshyqkdmfrzezzaegfmca9xpqyl45f7qtayd35zk5xr0fh6dycmm996uzfc8hwpr60jtyt6jjy6z77kjcqulfjxfr83n0wc9dlpkr6wnkgrssxynha6752486jh9hmmx96zpygfwm0z0984xc65svhq2j40mcqzyyhp8e0zs559jafkf7m5yxfutw2zl624a9t0wjhw66wst7f0fnn4ksc33zzckn9kd9p7rggd9x0qzz5l6cahameas4hkueupguelp6cjrwq8a4mnrlzklv9fr7vd7rq4x2vs06vzenskz62g3fcgy3vkql3aw4cnk7sux6rrrs4xk29ytpa0mwx2qnemy8r5w3h8wqknagc7ewhhgfgfsx4tarcfdkqghwf65q3ghp5nrhdrx7dp4hf4efmmudmzyusnepy4d0zvnx7r3vu935daluf09dxerj6s8hr58hd46x5gnqrv4qhp6ykxz90atxhxyayanj6x9t40e33wp8fngsh05fj49w25x8mclqqqqqqqqqqx29np2",
+          "certificate1qyqsqqqqqqqqqqq0lud06t52avmha0kq6xlj3gxwwz6mxdsksu35uwryefrjwsk8tsv38ey89u8p66psca5e8nk8scqqqs9qtd3"
+        ]
+      ]
+    ],
+    "program_checksum": [
+      "231u8",
+      "3u8",
+      "233u8",
+      "51u8",
+      "190u8",
+      "19u8",
+      "223u8",
+      "58u8",
+      "159u8",
+      "157u8",
+      "182u8",
+      "15u8",
+      "154u8",
+      "187u8",
+      "124u8",
+      "240u8",
+      "111u8",
+      "83u8",
+      "219u8",
+      "214u8",
+      "7u8",
+      "107u8",
+      "55u8",
+      "151u8",
+      "211u8",
+      "58u8",
+      "193u8",
+      "57u8",
+      "174u8",
+      "143u8",
+      "216u8",
+      "122u8"
+    ],
+    "program_owner": "aleo1f4d2swa2uph5svch9puss8yhmmjd8xjuc7445kczttsjcr4eeyxs7g735h"
+  },
+  "fee": {
+    "transition": {
+      "id": "au1w9z368j7zpxvl53dxttpw94e4nwr8qgp9ds9penzu3ke600u9cpss8yz5z",
+      "program": "credits.aleo",
+      "function": "fee_public",
+      "inputs": [
+        {
+          "type": "public",
+          "id": "2390064783798998261129098395650603877220603245753028641059654876907410677871field",
+          "value": "5516414u64"
+        },
+        {
+          "type": "public",
+          "id": "1968700173043552409595752143840020002406966738298011928739950495705765927866field",
+          "value": "0u64"
+        },
+        {
+          "type": "public",
+          "id": "5862306737737141301472517243896901831396717642040096393348726500140701931886field",
+          "value": "8080694699135163907781926755700393131171489145775393561280061139572452940754field"
+        }
+      ],
+      "outputs": [
+        {
+          "type": "future",
+          "id": "4237305263358393004719822261791338934035785582212523363850452564965231169233field",
+          "value": "{\n  program_id: credits.aleo,\n  function_name: fee_public,\n  arguments: [\n    aleo1f4d2swa2uph5svch9puss8yhmmjd8xjuc7445kczttsjcr4eeyxs7g735h,\n    5516414u64\n  ]\n}"
+        }
+      ],
+      "tpk": "3486936176305244944215279733132928935933713283184658060727976912326762405410group",
+      "tcm": "2697163144431874537057565400823761502908845296662302967665213944818996187500field",
+      "scm": "3306691347135691785659924700512488727953650843598548716492015652824814719111field"
+    },
+    "global_state_root": "sr189w3sasqcrzsae0v56qy55t9rvrlu2vysylnwv38zg8y2hgfnczs485rjg",
+    "proof": "proof1qyqsqqqqqqqqqqqpqqqqqqqqqqqvydc3u7t8s8jv2faw5qlwy7g93dvtjxwe55jlwupjp0wk6zftaq4qha68md0cnjrplctms8qlmyspqx9247eqqftl4qsueck7ah36sdgs054netlzv2x9kvdc24j846fxf4yu7mythmtrljxesynz2u52rqd8w8u9y3f250ph08lh488v8w5nzykvdng2nplga7n08z4gt4jrr2lkuhy325eeep4guk27z5x24xqaz83wnr49yyaq50q5hgxnmzy9ynuw8dg0rfve7skvfnxe9056zmen2qg8v30v4zg202vzycmncguqjnrk6s7jztscr7vgefpgrkahcs88pr4f5xqrlyph99v3tzj6d9r72uru9aljncl5j4gwtkdcf4fcptrq43km958aafzq4k5qqhmn0zk8m38kht269yrfeqrvtf5ruqs5asumce2xugyjz2f5y43fexnqspmkh2k84g34a8ktjk6ep3ugn90lqtydryp86znwnqc5esgvcw07cftzfztsvff9qdehve0dnf8k3qylap4fcxgv7pefgd76tptwduzlezxy6y2f4u5t400drlf2stawtkrhgss3en4tjl8xjqx0c8refsqdf33c3evwgxynhu80jf2zhx38v7m5yl7pthgccvymnlmm0r5f7sgy7hh8w5l3qel42fc6rgxeqtypxwme7zqcqt43qcf5060v3nw3he3v3uaez0p4zm4jqkdwndre8sya4fgn369g5pkaz5w6v0jlaek9ap3zcdecn7cekgqrktlp48aywywq5pk953ly6tzlym5rt3shlcl2mekejcz7de7wdx0743nyudz2pd4v4pwj53tweu77vpantqpxdnuvz0h0zntw4up9adm7svedapnq86lje7zkxac5nf2jltney3475yzescnj3rq327nd9m6vc6qnntgwds6thfcyjt5ggwrw39j7yk7rvkgtle4g3vmtsdptv6ptrf4aqg92h5vdm6hrwxlstsvap489fq57k2karjpxerjdt4appddeck22wrrjwa70gegk4360wf4la4hvnn07j5zt9m90aenfrx5j5we83fg0pxlwemjufjrcak0vs5m0wdgu662kf3seucdt2k9fsuc586sqvwvq9xn5mludhpd3n5dwjzesv4u2nypdmrhyqcclnavqhj24ntaeq3g8qvqqqqqqqqqqqhl2l4f5hp98n4kz77xdn86v6ahrdeywg0dewzeeqwypxduahartue32ld03atpfz9xq07q252q7qqqv50k3ccry7twzjjyv9z8ku7ccc3cnpkc5zznys7wwges6pwc88dqrtetlh3p32t0v3pprmsrykcvqq9z8pjts3ztyq3cy5nl3jvcn7hq0lujt6angv3lgy68qqxa0n33qdytm538fsp04q0yzux3guu6gq5wpj5g8ct8wajz66afkn2jtxwa3srce0h6cwya5rey5lergv6xmsqqqesgeu6"
+  }
+}

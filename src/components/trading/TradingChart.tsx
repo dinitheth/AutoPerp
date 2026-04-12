@@ -11,7 +11,6 @@ const TradingChart = ({ market }: TradingChartProps) => {
     const map: Record<string, string> = {
       "BTC-USD": "BINANCE:BTCUSDT",
       "ETH-USD": "BINANCE:ETHUSDT",
-      "ALEO-USD": "MEXC:ALEOUSDT",
     };
     return map[market] || "BINANCE:BTCUSDT";
   }, [market]);

@@ -1,9 +1,9 @@
 {
-  "program": "autoperp_core_v2.aleo",
+  "program": "autoperp_core_v9.aleo",
   "version": "0.1.0",
   "description": "",
   "license": "",
-  "leo": "3.4.0",
+  "leo": "4.0.0",
   "dependencies": null,
   "dev_dependencies": null
 }
