@@ -13,7 +13,6 @@ dist-ssr
 *.local
 
 # Editor directories and files
-.vscode/*
 !.vscode/extensions.json
 .idea
 .DS_Store
@@ -26,8 +25,8 @@ dist-ssr
 # Private key / deployment secrets — NEVER commit
 .env.deploy
 .env*.local
-.env
 .pem
 
 # Codex temp artifacts
 .codex-tmp/
+config.bat
