@@ -511,7 +511,7 @@ const Agent = () => {
               <div>
                 <p className="text-sm font-medium text-foreground">AutoPerp Agent</p>
                 <p className="text-[10px] text-muted-foreground">
-                  Powered by Gemini AI — on-chain AgentAuth ({PROGRAMS.AGENT}) — oracle-validated execution
+                  Powered by Gemini AI
                 </p>
               </div>
               <div className="ml-auto flex items-center gap-3">
